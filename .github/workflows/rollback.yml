@@ -1,0 +1,100 @@
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [dev, prod]
+      confirm:
+        description: "Type ROLLBACK to confirm"
+        required: true
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Rollback ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Verify confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "ROLLBACK" ]; then
+            echo "Rollback cancelled: type ROLLBACK to confirm"
+            exit 1
+          fi
+
+      - name: Install CF CLI
+        run: |
+          curl -fsSL "https://packages.cloudfoundry.org/stable?release=linux64-binary&version=v8&source=github" \
+            | tar -zx -C /usr/local/bin cf8
+
+      - name: CF login
+        run: |
+          cf8 api "${{ secrets.CF_API_URL }}"
+          cf8 auth "${{ secrets.CF_USERNAME }}" "${{ secrets.CF_PASSWORD }}"
+          TARGET_SPACE=${{ github.event.inputs.environment == 'prod' && secrets.CF_SPACE_PROD || secrets.CF_SPACE_DEV }}
+          cf8 target -o "${{ secrets.CF_ORG }}" -s "$TARGET_SPACE"
+
+      - name: Restore previous API version
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          SUFFIX=$( [ "$ENV" = "dev" ] && echo "-dev" || echo "" )
+          APP="bobj-converter-api${SUFFIX}"
+          PREV="${APP}-previous"
+          DOMAIN=$( [ "$ENV" = "prod" ] \
+            && echo "${{ secrets.CF_DOMAIN_PROD }}" \
+            || echo "${{ secrets.CF_DOMAIN_DEV }}" )
+          HOST="bobj-converter-api${SUFFIX}"
+
+          echo "Rolling back $APP to previous version ($PREV)..."
+
+          # Check previous version exists
+          cf8 app "$PREV" > /dev/null 2>&1 || \
+            { echo "No previous version found at $PREV — cannot roll back"; exit 1; }
+
+          # Swap routes
+          cf8 map-route   "$PREV" "$DOMAIN" --hostname "$HOST"
+          cf8 unmap-route "$APP"  "$DOMAIN" --hostname "$HOST" 2>/dev/null || true
+
+          # Rename: current→failed, previous→current
+          cf8 rename "$APP"  "${APP}-rolled-back" 2>/dev/null || true
+          cf8 rename "$PREV" "$APP"
+
+          echo "Rollback complete. Previous version is now live."
+          echo "Failed version renamed to: ${APP}-rolled-back"
+
+      - name: Health check after rollback
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          SUFFIX=$( [ "$ENV" = "dev" ] && echo "-dev" || echo "" )
+          DOMAIN=$( [ "$ENV" = "prod" ] \
+            && echo "${{ secrets.CF_DOMAIN_PROD }}" \
+            || echo "${{ secrets.CF_DOMAIN_DEV }}" )
+          URL="https://bobj-converter-api${SUFFIX}.${DOMAIN}/api/health"
+          echo "Health checking $URL ..."
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
+            [ "$STATUS" = "200" ] && echo "Health OK ✓" && exit 0
+            sleep 8
+          done
+          echo "Health check FAILED after rollback"
+          exit 1
+
+      - name: Slack notification
+        if: always() && ${{ secrets.SLACK_WEBHOOK_URL != '' }}
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "⏪ *BOBJ Converter — Rollback executed on ${{ github.event.inputs.environment }}* by ${{ github.actor }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

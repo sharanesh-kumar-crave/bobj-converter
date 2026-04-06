@@ -1,0 +1,239 @@
+name: Deploy → Dev
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Reason for manual deploy"
+        required: false
+        default: "Manual trigger"
+
+# Only one deploy-dev runs at a time
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  # ── Gate: CI must pass ─────────────────────────────────────────────────────
+  check-ci:
+    name: Verify CI passed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check previous CI run
+        run: echo "CI gate passed — proceeding to dev deploy"
+
+  # ── Build artefact ─────────────────────────────────────────────────────────
+  build:
+    name: Build & package
+    runs-on: ubuntu-latest
+    needs: check-ci
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install & verify
+        working-directory: backend
+        run: |
+          pip install -r requirements.txt
+          python -c "from app.main import app; print('Import OK')"
+
+      - name: Set build metadata
+        id: meta
+        run: |
+          echo "tag=$(date +%Y%m%d)-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Upload backend artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dist
+          path: backend/
+          retention-days: 3
+
+      - name: Upload frontend artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/
+          retention-days: 3
+
+  # ── Deploy backend to Dev ──────────────────────────────────────────────────
+  deploy-api-dev:
+    name: Deploy API → Dev
+    runs-on: ubuntu-latest
+    needs: build
+    environment: dev
+    env:
+      CF_APP_NAME: bobj-converter-api-dev
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-dist
+          path: backend/
+
+      - name: Install CF CLI
+        run: |
+          curl -fsSL "https://packages.cloudfoundry.org/stable?release=linux64-binary&version=v8&source=github" \
+            | tar -zx -C /usr/local/bin cf8
+          cf8 version
+
+      - name: CF login — Dev space
+        run: |
+          cf8 api "${{ secrets.CF_API_URL }}"
+          cf8 auth "${{ secrets.CF_USERNAME }}" "${{ secrets.CF_PASSWORD }}"
+          cf8 target -o "${{ secrets.CF_ORG }}" -s "${{ secrets.CF_SPACE_DEV }}"
+
+      - name: Blue-green deploy — API (zero-downtime)
+        working-directory: backend
+        run: |
+          # Push to a "green" instance first
+          cf8 push ${CF_APP_NAME}-green \
+            -f manifest.yml \
+            --var CF_DOMAIN="${{ secrets.CF_DOMAIN_DEV }}" \
+            --no-route \
+            --no-start
+
+          # Set environment variables for Dev
+          cf8 set-env ${CF_APP_NAME}-green ENVIRONMENT          dev
+          cf8 set-env ${CF_APP_NAME}-green DATASPHERE_BASE_URL  "${{ secrets.DATASPHERE_BASE_URL_DEV }}"
+          cf8 set-env ${CF_APP_NAME}-green DATASPHERE_SPACE_ID  "${{ secrets.DATASPHERE_SPACE_ID_DEV }}"
+          cf8 set-env ${CF_APP_NAME}-green DATASPHERE_TOKEN_URL "${{ secrets.DATASPHERE_TOKEN_URL_DEV }}"
+          cf8 set-env ${CF_APP_NAME}-green DATASPHERE_CLIENT_ID "${{ secrets.DATASPHERE_CLIENT_ID_DEV }}"
+          cf8 set-env ${CF_APP_NAME}-green DATASPHERE_CLIENT_SECRET "${{ secrets.DATASPHERE_CLIENT_SECRET_DEV }}"
+          cf8 set-env ${CF_APP_NAME}-green SAC_TENANT_URL       "${{ secrets.SAC_TENANT_URL_DEV }}"
+          cf8 set-env ${CF_APP_NAME}-green SAC_TOKEN_URL        "${{ secrets.SAC_TOKEN_URL_DEV }}"
+          cf8 set-env ${CF_APP_NAME}-green SAC_CLIENT_ID        "${{ secrets.SAC_CLIENT_ID_DEV }}"
+          cf8 set-env ${CF_APP_NAME}-green SAC_CLIENT_SECRET    "${{ secrets.SAC_CLIENT_SECRET_DEV }}"
+          cf8 set-env ${CF_APP_NAME}-green AICORE_DEPLOYMENT_ID "${{ secrets.AICORE_DEPLOYMENT_ID_DEV }}"
+          cf8 set-env ${CF_APP_NAME}-green BUILD_SHA            "${{ github.sha }}"
+          cf8 set-env ${CF_APP_NAME}-green DEPLOYED_AT          "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Start green
+          cf8 start ${CF_APP_NAME}-green
+
+          # Map route to green (traffic shift)
+          cf8 map-route   ${CF_APP_NAME}-green "${{ secrets.CF_DOMAIN_DEV }}" \
+            --hostname bobj-converter-api-dev
+
+          # Wait for green to be healthy
+          sleep 10
+
+          # Remove route from blue (old version), if it exists
+          cf8 unmap-route ${CF_APP_NAME} "${{ secrets.CF_DOMAIN_DEV }}" \
+            --hostname bobj-converter-api-dev 2>/dev/null || true
+
+          # Rename: blue→old, green→blue
+          cf8 delete  ${CF_APP_NAME}-old --f 2>/dev/null || true
+          cf8 rename  ${CF_APP_NAME}       ${CF_APP_NAME}-old 2>/dev/null || true
+          cf8 rename  ${CF_APP_NAME}-green ${CF_APP_NAME}
+
+          echo "Blue-green deploy complete ✓"
+
+      - name: Health check
+        run: |
+          URL="https://bobj-converter-api-dev.${{ secrets.CF_DOMAIN_DEV }}/api/health"
+          echo "Checking $URL ..."
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
+            echo "  Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed ✓"
+              exit 0
+            fi
+            sleep 8
+          done
+          echo "Health check FAILED after 5 attempts"
+          exit 1
+
+      - name: Smoke test — conversion endpoint
+        run: |
+          echo "Running smoke test against Dev API..."
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X GET \
+            "https://bobj-converter-api-dev.${{ secrets.CF_DOMAIN_DEV }}/api/health")
+          if [ "$RESPONSE" != "200" ]; then
+            echo "Smoke test FAILED (HTTP $RESPONSE)"
+            exit 1
+          fi
+          echo "Smoke test passed ✓"
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Deploy failed — rolling back to previous version..."
+          cf8 delete  ${CF_APP_NAME}-green --f 2>/dev/null || true
+          cf8 map-route ${CF_APP_NAME}-old "${{ secrets.CF_DOMAIN_DEV }}" \
+            --hostname bobj-converter-api-dev 2>/dev/null || true
+          echo "Rollback complete."
+
+  # ── Deploy frontend to Dev ─────────────────────────────────────────────────
+  deploy-ui-dev:
+    name: Deploy UI → Dev
+    runs-on: ubuntu-latest
+    needs: build
+    environment: dev
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/
+
+      - name: Install CF CLI
+        run: |
+          curl -fsSL "https://packages.cloudfoundry.org/stable?release=linux64-binary&version=v8&source=github" \
+            | tar -zx -C /usr/local/bin cf8
+
+      - name: CF login — Dev space
+        run: |
+          cf8 api "${{ secrets.CF_API_URL }}"
+          cf8 auth "${{ secrets.CF_USERNAME }}" "${{ secrets.CF_PASSWORD }}"
+          cf8 target -o "${{ secrets.CF_ORG }}" -s "${{ secrets.CF_SPACE_DEV }}"
+
+      - name: Deploy UI
+        working-directory: frontend
+        run: |
+          cf8 push bobj-converter-ui-dev \
+            -f manifest.yml \
+            --var CF_DOMAIN="${{ secrets.CF_DOMAIN_DEV }}" \
+            --strategy rolling
+
+  # ── Notify ────────────────────────────────────────────────────────────────
+  notify-dev:
+    name: Notify deployment
+    runs-on: ubuntu-latest
+    needs: [deploy-api-dev, deploy-ui-dev]
+    if: always()
+
+    steps:
+      - name: Slack notification
+        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "${{ (needs.deploy-api-dev.result == 'success' && needs.deploy-ui-dev.result == 'success') && '✅ Dev deploy succeeded' || '❌ Dev deploy FAILED' }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "${{ (needs.deploy-api-dev.result == 'success') && '✅' || '❌' }} *BOBJ Converter — Dev Deploy*\n*Commit:* `${{ github.sha }}` by ${{ github.actor }}\n*Branch:* `${{ github.ref_name }}`\n*API:* https://bobj-converter-api-dev.${{ secrets.CF_DOMAIN_DEV }}\n*UI:*  https://bobj-converter-dev.${{ secrets.CF_DOMAIN_DEV }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

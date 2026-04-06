@@ -1,0 +1,309 @@
+name: Deploy → Prod
+
+on:
+  # Trigger manually or on semantic version tag
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type DEPLOY to confirm production deployment"
+        required: true
+      reason:
+        description: "Release notes / reason"
+        required: true
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+# Never run two prod deploys simultaneously
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  # ── Safety gate ────────────────────────────────────────────────────────────
+  gate:
+    name: Safety gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify confirmation input
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "DEPLOY" ]; then
+            echo "Deployment cancelled: confirmation input was not 'DEPLOY'"
+            exit 1
+          fi
+          echo "Confirmation accepted. Proceeding to production deploy."
+
+      - name: Tag validation
+        if: github.event_name == 'push'
+        run: echo "Deploying tag ${{ github.ref_name }} to production"
+
+  # ── Build ──────────────────────────────────────────────────────────────────
+  build:
+    name: Build & package
+    runs-on: ubuntu-latest
+    needs: gate
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Set version
+        id: ver
+        run: |
+          VERSION="${{ github.ref_name }}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "main" ]; then
+            VERSION="$(date +%Y%m%d)-$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install & verify
+        working-directory: backend
+        run: |
+          pip install -r requirements.txt
+          python -c "from app.main import app; print('Import OK')"
+
+      - name: Upload backend artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dist-prod
+          path: backend/
+          retention-days: 14
+
+      - name: Upload frontend artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-prod
+          path: frontend/
+          retention-days: 14
+
+  # ── Human approval (GitHub Environment protection rule) ───────────────────
+  # Configure "prod" environment in GitHub → Settings → Environments
+  # Add required reviewers and set wait-timer to 0 or 5 minutes.
+  # The job below will pause here until a reviewer approves.
+
+  # ── Deploy API → Prod ──────────────────────────────────────────────────────
+  deploy-api-prod:
+    name: Deploy API → Prod
+    runs-on: ubuntu-latest
+    needs: build
+    environment: prod          # ← triggers the approval gate
+    env:
+      CF_APP_NAME: bobj-converter-api
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-dist-prod
+          path: backend/
+
+      - name: Install CF CLI
+        run: |
+          curl -fsSL "https://packages.cloudfoundry.org/stable?release=linux64-binary&version=v8&source=github" \
+            | tar -zx -C /usr/local/bin cf8
+          cf8 version
+
+      - name: CF login — Prod space
+        run: |
+          cf8 api "${{ secrets.CF_API_URL }}"
+          cf8 auth "${{ secrets.CF_USERNAME }}" "${{ secrets.CF_PASSWORD }}"
+          cf8 target -o "${{ secrets.CF_ORG }}" -s "${{ secrets.CF_SPACE_PROD }}"
+
+      - name: Snapshot current app state (for rollback)
+        id: snapshot
+        run: |
+          CURRENT_GUID=$(cf8 app ${CF_APP_NAME} --guid 2>/dev/null || echo "none")
+          echo "current-guid=$CURRENT_GUID" >> $GITHUB_OUTPUT
+          echo "Snapshotted current app GUID: $CURRENT_GUID"
+          # Save current env for rollback reference
+          cf8 env ${CF_APP_NAME} > /tmp/current-env-snapshot.txt 2>/dev/null || true
+
+      - name: Blue-green deploy — API (zero-downtime)
+        working-directory: backend
+        run: |
+          # Push green (new version), no route yet
+          cf8 push ${CF_APP_NAME}-green \
+            -f manifest.yml \
+            --var CF_DOMAIN="${{ secrets.CF_DOMAIN_PROD }}" \
+            --no-route \
+            --no-start
+
+          # Inject all prod secrets
+          cf8 set-env ${CF_APP_NAME}-green ENVIRONMENT              prod
+          cf8 set-env ${CF_APP_NAME}-green DATASPHERE_BASE_URL      "${{ secrets.DATASPHERE_BASE_URL_PROD }}"
+          cf8 set-env ${CF_APP_NAME}-green DATASPHERE_SPACE_ID      "${{ secrets.DATASPHERE_SPACE_ID_PROD }}"
+          cf8 set-env ${CF_APP_NAME}-green DATASPHERE_TOKEN_URL     "${{ secrets.DATASPHERE_TOKEN_URL_PROD }}"
+          cf8 set-env ${CF_APP_NAME}-green DATASPHERE_CLIENT_ID     "${{ secrets.DATASPHERE_CLIENT_ID_PROD }}"
+          cf8 set-env ${CF_APP_NAME}-green DATASPHERE_CLIENT_SECRET "${{ secrets.DATASPHERE_CLIENT_SECRET_PROD }}"
+          cf8 set-env ${CF_APP_NAME}-green SAC_TENANT_URL            "${{ secrets.SAC_TENANT_URL_PROD }}"
+          cf8 set-env ${CF_APP_NAME}-green SAC_TOKEN_URL             "${{ secrets.SAC_TOKEN_URL_PROD }}"
+          cf8 set-env ${CF_APP_NAME}-green SAC_CLIENT_ID             "${{ secrets.SAC_CLIENT_ID_PROD }}"
+          cf8 set-env ${CF_APP_NAME}-green SAC_CLIENT_SECRET         "${{ secrets.SAC_CLIENT_SECRET_PROD }}"
+          cf8 set-env ${CF_APP_NAME}-green AICORE_DEPLOYMENT_ID      "${{ secrets.AICORE_DEPLOYMENT_ID_PROD }}"
+          cf8 set-env ${CF_APP_NAME}-green HANA_POOL_SIZE            "10"
+          cf8 set-env ${CF_APP_NAME}-green BUILD_SHA                 "${{ github.sha }}"
+          cf8 set-env ${CF_APP_NAME}-green BUILD_VERSION             "${{ needs.build.outputs.version }}"
+          cf8 set-env ${CF_APP_NAME}-green DEPLOYED_AT               "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Start green & verify it's healthy before cutting traffic
+          cf8 start ${CF_APP_NAME}-green
+          sleep 15
+
+          # Map route to green
+          cf8 map-route ${CF_APP_NAME}-green "${{ secrets.CF_DOMAIN_PROD }}" \
+            --hostname bobj-converter-api
+
+          # Wait for green to warm up, then remove blue from route
+          sleep 10
+          cf8 unmap-route ${CF_APP_NAME} "${{ secrets.CF_DOMAIN_PROD }}" \
+            --hostname bobj-converter-api 2>/dev/null || true
+
+          # Rename blue → keep as backup for 1 deploy cycle
+          cf8 delete  ${CF_APP_NAME}-previous --f 2>/dev/null || true
+          cf8 rename  ${CF_APP_NAME}           ${CF_APP_NAME}-previous 2>/dev/null || true
+          cf8 rename  ${CF_APP_NAME}-green     ${CF_APP_NAME}
+
+          echo "Prod blue-green deploy complete ✓"
+
+      - name: Health check — Prod
+        id: healthcheck
+        run: |
+          URL="https://bobj-converter-api.${{ secrets.CF_DOMAIN_PROD }}/api/health"
+          echo "Health checking $URL ..."
+          for i in 1 2 3 4 5 6; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
+            echo "  Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed ✓"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Health check FAILED"
+          exit 1
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Prod deploy or health check FAILED — initiating automatic rollback..."
+          # Remove failed green from route if it's there
+          cf8 unmap-route ${CF_APP_NAME}-green "${{ secrets.CF_DOMAIN_PROD }}" \
+            --hostname bobj-converter-api 2>/dev/null || true
+
+          # Restore previous version to route
+          cf8 map-route ${CF_APP_NAME}-previous "${{ secrets.CF_DOMAIN_PROD }}" \
+            --hostname bobj-converter-api 2>/dev/null || true
+
+          # Rename back
+          cf8 rename ${CF_APP_NAME}          ${CF_APP_NAME}-green-failed 2>/dev/null || true
+          cf8 rename ${CF_APP_NAME}-previous ${CF_APP_NAME}              2>/dev/null || true
+
+          echo "Automatic rollback complete. Previous version restored."
+          exit 1
+
+  # ── Deploy UI → Prod ───────────────────────────────────────────────────────
+  deploy-ui-prod:
+    name: Deploy UI → Prod
+    runs-on: ubuntu-latest
+    needs: build
+    environment: prod
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist-prod
+          path: frontend/
+
+      - name: Install CF CLI
+        run: |
+          curl -fsSL "https://packages.cloudfoundry.org/stable?release=linux64-binary&version=v8&source=github" \
+            | tar -zx -C /usr/local/bin cf8
+
+      - name: CF login — Prod space
+        run: |
+          cf8 api "${{ secrets.CF_API_URL }}"
+          cf8 auth "${{ secrets.CF_USERNAME }}" "${{ secrets.CF_PASSWORD }}"
+          cf8 target -o "${{ secrets.CF_ORG }}" -s "${{ secrets.CF_SPACE_PROD }}"
+
+      - name: Deploy UI — rolling
+        working-directory: frontend
+        run: |
+          cf8 push bobj-converter-ui \
+            -f manifest.yml \
+            --var CF_DOMAIN="${{ secrets.CF_DOMAIN_PROD }}" \
+            --strategy rolling
+
+  # ── GitHub Release ─────────────────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [deploy-api-prod, deploy-ui-prod]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git tag --sort=-creatordate | sed -n '2p')
+          if [ -n "$PREV_TAG" ]; then
+            LOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%an)" --no-merges)
+          else
+            LOG=$(git log --pretty=format:"- %s (%an)" --no-merges | head -20)
+          fi
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$LOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "BOBJ Converter ${{ github.ref_name }}"
+          body: |
+            ## What's changed
+            ${{ steps.changelog.outputs.changelog }}
+
+            ## Deployments
+            - **API:** https://bobj-converter-api.${{ secrets.CF_DOMAIN_PROD }}
+            - **UI:**  https://bobj-converter.${{ secrets.CF_DOMAIN_PROD }}
+          draft: false
+          prerelease: false
+
+  # ── Notify ─────────────────────────────────────────────────────────────────
+  notify-prod:
+    name: Notify prod deployment
+    runs-on: ubuntu-latest
+    needs: [deploy-api-prod, deploy-ui-prod]
+    if: always()
+
+    steps:
+      - name: Slack notification
+        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "${{ (needs.deploy-api-prod.result == 'success' && needs.deploy-ui-prod.result == 'success') && '🚀 Prod deploy succeeded' || '🔥 Prod deploy FAILED — rollback initiated' }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "${{ (needs.deploy-api-prod.result == 'success') && '🚀' || '🔥' }} *BOBJ Converter — Production Deploy*\n*Version:* `${{ needs.build.outputs.version }}`\n*Triggered by:* ${{ github.actor }}\n*Reason:* ${{ github.event.inputs.reason || github.ref_name }}\n*API:* https://bobj-converter-api.${{ secrets.CF_DOMAIN_PROD }}\n*UI:*  https://bobj-converter.${{ secrets.CF_DOMAIN_PROD }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

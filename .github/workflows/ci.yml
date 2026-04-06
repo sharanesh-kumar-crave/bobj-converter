@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Lint & type-check ──────────────────────────────────────────────────────
+  lint:
+    name: Lint & type-check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install dev dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Ruff lint
+        run: ruff check app/
+
+      - name: Ruff format check
+        run: ruff format --check app/
+
+      - name: Mypy type-check
+        run: mypy app/ --ignore-missing-imports --no-error-summary
+
+  # ── Unit tests ─────────────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    needs: lint
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run unit tests
+        run: |
+          pytest tests/unit/ \
+            --cov=app \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --junitxml=reports/unit-results.xml \
+            -v
+        env:
+          TESTING: "true"
+          HANA_HOST: "mock"
+          HANA_USER: "mock"
+          HANA_PASSWORD: "mock"
+          ANTHROPIC_API_KEY: "mock"
+
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: backend/reports/unit-results.xml
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: backend/coverage.xml
+
+  # ── Integration tests ──────────────────────────────────────────────────────
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    services:
+      # Local HANA mock via SAP HANA express or a postgres stand-in for schema tests
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: bobj_test
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Apply test schema
+        run: |
+          psql postgresql://testuser:testpass@localhost:5432/bobj_test \
+            -f ../db/schema_pg.sql || true
+        continue-on-error: true
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ \
+            --junitxml=reports/integration-results.xml \
+            -v
+        env:
+          TESTING: "true"
+          DB_URL: "postgresql://testuser:testpass@localhost:5432/bobj_test"
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY_TEST }}
+          AICORE_DEPLOYMENT_ID: ""
+
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: backend/reports/integration-results.xml
+
+  # ── Security scan ─────────────────────────────────────────────────────────
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    needs: lint
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Bandit security scan
+        run: bandit -r app/ -ll --exit-zero
+
+      - name: Safety dependency check
+        run: safety check --full-report || true
