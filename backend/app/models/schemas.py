@@ -1,46 +1,52 @@
 from __future__ import annotations
-from enum import Enum
-from typing import Optional, Any
-from datetime import datetime
-from pydantic import BaseModel, Field, UUID4
-import uuid
 
+import uuid
+from datetime import datetime
+from enum import Enum
+
+from pydantic import UUID4, BaseModel, Field
 
 # ─── Enums ────────────────────────────────────────────────────────────────────
 
+
 class InputType(str, Enum):
     universe_xml = "universe_xml"
-    report_rpt   = "report_rpt"
-    manual       = "manual"
+    report_rpt = "report_rpt"
+    manual = "manual"
+
 
 class JobStatus(str, Enum):
-    pending    = "pending"
-    running    = "running"
-    completed  = "completed"
-    failed     = "failed"
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
 
 class ConversionStatus(str, Enum):
-    converted        = "Converted"
-    manual_review    = "Manual Review Required"
-    not_supported    = "Not Supported"
+    converted = "Converted"
+    manual_review = "Manual Review Required"
+    not_supported = "Not Supported"
 
 
 # ─── BOBJ Input ───────────────────────────────────────────────────────────────
 
+
 class ConversionRequest(BaseModel):
-    project_id: Optional[UUID4] = None
+    project_id: UUID4 | None = None
     input_type: InputType
     artifact_name: str = Field(..., min_length=1, max_length=255)
-    raw_content: str   = Field(..., min_length=10, description="Raw BOBJ artifact text")
+    raw_content: str = Field(..., min_length=10, description="Raw BOBJ artifact text")
 
 
 # ─── Datasphere Output ────────────────────────────────────────────────────────
 
+
 class ColumnDef(BaseModel):
     name: str
     data_type: str
-    description: Optional[str] = None
+    description: str | None = None
     key_column: bool = False
+
 
 class JoinDef(BaseModel):
     left_table: str
@@ -48,39 +54,44 @@ class JoinDef(BaseModel):
     join_type: str = "INNER"
     condition: str
 
+
 class DatasphereEntity(BaseModel):
     entity_name: str
-    entity_type: str   # View | Entity | Dimension | Fact | Analytical Dataset
-    description: Optional[str] = None
+    entity_type: str  # View | Entity | Dimension | Fact | Analytical Dataset
+    description: str | None = None
     columns: list[ColumnDef] = []
     joins: list[JoinDef] = []
-    sql_expression: Optional[str] = None
+    sql_expression: str | None = None
 
 
 # ─── SAC Output ───────────────────────────────────────────────────────────────
 
+
 class SACDimension(BaseModel):
     id: str
     name: str
-    type: str          # Account | Date | Generic | Organization
+    type: str  # Account | Date | Generic | Organization
     hierarchies: list[str] = []
+
 
 class SACMeasure(BaseModel):
     id: str
     name: str
     aggregation: str = "SUM"
-    format: Optional[str] = None
-    currency: Optional[str] = None
+    format: str | None = None
+    currency: str | None = None
+
 
 class SACDataConnection(BaseModel):
     name: str
-    type: str          # Datasphere | Live
+    type: str  # Datasphere | Live
     entity_name: str
+
 
 class SACModelConfig(BaseModel):
     model_name: str
-    model_type: str    # Analytical | Planning
-    description: Optional[str] = None
+    model_type: str  # Analytical | Planning
+    description: str | None = None
     dimensions: list[SACDimension] = []
     measures: list[SACMeasure] = []
     data_connections: list[SACDataConnection] = []
@@ -88,10 +99,12 @@ class SACModelConfig(BaseModel):
 
 # ─── Mapping Report ───────────────────────────────────────────────────────────
 
+
 class FieldMapping(BaseModel):
     source_field: str
     target_field: str
-    transformation: Optional[str] = None
+    transformation: str | None = None
+
 
 class MappingEntry(BaseModel):
     source_object: str
@@ -99,11 +112,12 @@ class MappingEntry(BaseModel):
     target_object: str
     target_type: str
     status: ConversionStatus
-    notes: Optional[str] = None
+    notes: str | None = None
     field_mappings: list[FieldMapping] = []
 
 
 # ─── Summary ──────────────────────────────────────────────────────────────────
+
 
 class ConversionSummary(BaseModel):
     total_objects: int
@@ -115,27 +129,30 @@ class ConversionSummary(BaseModel):
 
 # ─── Full Conversion Result ───────────────────────────────────────────────────
 
+
 class ConversionResult(BaseModel):
     job_id: UUID4
-    project_id: Optional[UUID4]
+    project_id: UUID4 | None
     status: JobStatus
     datasphere_entities: list[DatasphereEntity] = []
-    sac_model_config: Optional[SACModelConfig] = None
+    sac_model_config: SACModelConfig | None = None
     conversion_mapping: list[MappingEntry] = []
-    summary: Optional[ConversionSummary] = None
+    summary: ConversionSummary | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
-    error: Optional[str] = None
+    completed_at: datetime | None = None
+    error: str | None = None
 
 
 # ─── Project ──────────────────────────────────────────────────────────────────
 
+
 class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = None
-    bobj_system_name: Optional[str] = None
-    datasphere_space_id: Optional[str] = None
-    sac_tenant_url: Optional[str] = None
+    description: str | None = None
+    bobj_system_name: str | None = None
+    datasphere_space_id: str | None = None
+    sac_tenant_url: str | None = None
+
 
 class Project(ProjectCreate):
     id: UUID4 = Field(default_factory=uuid.uuid4)
@@ -150,13 +167,14 @@ class Project(ProjectCreate):
 
 # ─── Job (lightweight listing) ────────────────────────────────────────────────
 
+
 class JobSummary(BaseModel):
     id: UUID4
-    project_id: Optional[UUID4]
+    project_id: UUID4 | None
     artifact_name: str
     input_type: InputType
     status: JobStatus
-    total_objects: Optional[int]
-    converted: Optional[int]
+    total_objects: int | None
+    converted: int | None
     created_at: datetime
-    completed_at: Optional[datetime]
+    completed_at: datetime | None

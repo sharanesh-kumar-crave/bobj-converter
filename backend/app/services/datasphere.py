@@ -1,6 +1,6 @@
-import os
 import logging
-from typing import Optional
+import os
+
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -11,15 +11,17 @@ logger = logging.getLogger(__name__)
 
 def _get_datasphere_config() -> dict:
     return {
-        "base_url":   os.getenv("DATASPHERE_BASE_URL", ""),   # e.g. https://<tenant>.eu20.hana.ondemand.com
-        "space_id":   os.getenv("DATASPHERE_SPACE_ID", ""),
-        "token_url":  os.getenv("DATASPHERE_TOKEN_URL", ""),
-        "client_id":  os.getenv("DATASPHERE_CLIENT_ID", ""),
+        "base_url": os.getenv(
+            "DATASPHERE_BASE_URL", ""
+        ),  # e.g. https://<tenant>.eu20.hana.ondemand.com
+        "space_id": os.getenv("DATASPHERE_SPACE_ID", ""),
+        "token_url": os.getenv("DATASPHERE_TOKEN_URL", ""),
+        "client_id": os.getenv("DATASPHERE_CLIENT_ID", ""),
         "client_secret": os.getenv("DATASPHERE_CLIENT_SECRET", ""),
     }
 
 
-_ds_token: Optional[str] = None
+_ds_token: str | None = None
 
 
 async def _get_ds_token(config: dict) -> str:
@@ -30,8 +32,8 @@ async def _get_ds_token(config: dict) -> str:
         resp = await client.post(
             config["token_url"],
             data={
-                "grant_type":    "client_credentials",
-                "client_id":     config["client_id"],
+                "grant_type": "client_credentials",
+                "client_id": config["client_id"],
                 "client_secret": config["client_secret"],
             },
         )
@@ -53,7 +55,7 @@ async def push_entities(entities: list[dict]) -> dict:
     token = await _get_ds_token(config)
     headers = {
         "Authorization": f"Bearer {token}",
-        "Content-Type":  "application/json",
+        "Content-Type": "application/json",
     }
     base = config["base_url"].rstrip("/")
     space = config["space_id"]
@@ -73,10 +75,12 @@ async def push_entities(entities: list[dict]) -> dict:
                 if resp.status_code in (200, 201):
                     results["created"].append(entity_name)
                 else:
-                    results["failed"].append({
-                        "entity": entity_name,
-                        "error": resp.text[:200],
-                    })
+                    results["failed"].append(
+                        {
+                            "entity": entity_name,
+                            "error": resp.text[:200],
+                        }
+                    )
             except httpx.RequestError as e:
                 results["failed"].append({"entity": entity_name, "error": str(e)})
 
@@ -86,15 +90,15 @@ async def push_entities(entities: list[dict]) -> dict:
 def _to_datasphere_payload(entity: dict, space_id: str) -> dict:
     """Map our internal entity schema to Datasphere API payload."""
     return {
-        "entityName":  entity.get("entityName"),
-        "entityType":  entity.get("entityType", "View"),
-        "space":       space_id,
+        "entityName": entity.get("entityName"),
+        "entityType": entity.get("entityType", "View"),
+        "space": space_id,
         "description": entity.get("description", ""),
         "columns": [
             {
-                "name":     col.get("name"),
+                "name": col.get("name"),
                 "dataType": col.get("dataType", "String"),
-                "isKey":    col.get("keyColumn", False),
+                "isKey": col.get("keyColumn", False),
             }
             for col in entity.get("columns", [])
         ],

@@ -1,15 +1,14 @@
-import os
 import json
 import logging
-from typing import Optional
-from fastapi import Request, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import httpx
+import os
+
 import jwt
+from fastapi import HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 
 logger = logging.getLogger(__name__)
-_jwks_client: Optional[PyJWKClient] = None
+_jwks_client: PyJWKClient | None = None
 
 
 def _get_xsuaa_config() -> dict:
@@ -22,7 +21,7 @@ def _get_xsuaa_config() -> dict:
     creds = xsuaa_list[0]["credentials"]
     return {
         "clientid": creds["clientid"],
-        "url": creds["url"],                        # e.g. https://<subdomain>.authentication.eu20.hana.ondemand.com
+        "url": creds["url"],  # e.g. https://<subdomain>.authentication.eu20.hana.ondemand.com
         "xsappname": creds["xsappname"],
         "jwks_uri": f"{creds['url']}/token_keys",
     }
@@ -72,6 +71,7 @@ async def verify_token(
 
 def require_scope(scope: str):
     """Dependency factory — raises 403 if user lacks the required XSUAA scope."""
+
     async def _check(request: Request):
         payload = getattr(request.state, "user", {})
         scopes = payload.get("scope", "").split()
@@ -82,4 +82,5 @@ def require_scope(scope: str):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Missing required scope: {full_scope}",
             )
+
     return _check

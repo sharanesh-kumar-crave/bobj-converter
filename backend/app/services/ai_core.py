@@ -1,7 +1,7 @@
-import os
 import json
 import logging
-from typing import Optional
+import os
+
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -9,34 +9,35 @@ logger = logging.getLogger(__name__)
 # SAP AI Core uses OAuth2 client-credentials to obtain a token,
 # then calls the AI Core inference endpoint.
 
-_access_token: Optional[str] = None
+_access_token: str | None = None
 
 
 def _get_aicore_config() -> dict:
     """Extract AI Core credentials from VCAP_SERVICES or environment."""
     import json as _json
+
     vcap_raw = os.getenv("VCAP_SERVICES", "{}")
     vcap = _json.loads(vcap_raw)
     aicore_list = vcap.get("aicore", [])
     if aicore_list:
         creds = aicore_list[0]["credentials"]
         return {
-            "auth_url":      creds["serviceurls"]["AI_API_URL"].rstrip("/") + "/oauth/token",
-            "api_base":      creds["serviceurls"]["AI_API_URL"].rstrip("/"),
-            "client_id":     creds["clientid"],
+            "auth_url": creds["serviceurls"]["AI_API_URL"].rstrip("/") + "/oauth/token",
+            "api_base": creds["serviceurls"]["AI_API_URL"].rstrip("/"),
+            "client_id": creds["clientid"],
             "client_secret": creds["clientsecret"],
             "resource_group": os.getenv("AICORE_RESOURCE_GROUP", "default"),
-            "deployment_id":  os.getenv("AICORE_DEPLOYMENT_ID", ""),  # set after deploying model
+            "deployment_id": os.getenv("AICORE_DEPLOYMENT_ID", ""),  # set after deploying model
         }
     # Fallback — allow direct Anthropic API for local dev
     return {
-        "auth_url":      None,
-        "api_base":      "https://api.anthropic.com",
-        "client_id":     None,
+        "auth_url": None,
+        "api_base": "https://api.anthropic.com",
+        "client_id": None,
         "client_secret": None,
         "resource_group": None,
-        "deployment_id":  None,
-        "anthropic_key":  os.getenv("ANTHROPIC_API_KEY", ""),
+        "deployment_id": None,
+        "anthropic_key": os.getenv("ANTHROPIC_API_KEY", ""),
     }
 
 
@@ -49,8 +50,8 @@ async def _get_token(config: dict) -> str:
         resp = await client.post(
             config["auth_url"],
             data={
-                "grant_type":    "client_credentials",
-                "client_id":     config["client_id"],
+                "grant_type": "client_credentials",
+                "client_id": config["client_id"],
                 "client_secret": config["client_secret"],
             },
         )
@@ -113,8 +114,7 @@ async def run_conversion(input_type: str, raw_content: str) -> dict:
     config = _get_aicore_config()
 
     user_message = (
-        f"Convert this BOBJ {input_type.replace('_', ' ')} to Datasphere and SAC:\n\n"
-        f"{raw_content}"
+        f"Convert this BOBJ {input_type.replace('_', ' ')} to Datasphere and SAC:\n\n{raw_content}"
     )
 
     # ── SAP AI Core path ──────────────────────────────────────────────────
@@ -130,11 +130,11 @@ async def run_conversion(input_type: str, raw_content: str) -> dict:
             "Content-Type": "application/json",
         }
         payload = {
-            "model":      "gpt-4o",   # or your deployed model alias
+            "model": "gpt-4o",  # or your deployed model alias
             "max_tokens": 4000,
             "messages": [
-                {"role": "system",  "content": SYSTEM_PROMPT},
-                {"role": "user",    "content": user_message},
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
             ],
         }
         async with httpx.AsyncClient(timeout=60) as client:
@@ -147,15 +147,15 @@ async def run_conversion(input_type: str, raw_content: str) -> dict:
         api_key = config.get("anthropic_key", "")
         url = f"{config['api_base']}/v1/messages"
         headers = {
-            "x-api-key":         api_key,
+            "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
-            "Content-Type":      "application/json",
+            "Content-Type": "application/json",
         }
         payload = {
-            "model":      "claude-sonnet-4-20250514",
+            "model": "claude-sonnet-4-20250514",
             "max_tokens": 4000,
-            "system":     SYSTEM_PROMPT,
-            "messages":   [{"role": "user", "content": user_message}],
+            "system": SYSTEM_PROMPT,
+            "messages": [{"role": "user", "content": user_message}],
         }
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(url, headers=headers, json=payload)

@@ -1,6 +1,6 @@
-import os
 import logging
-from typing import Optional
+import os
+
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -11,14 +11,16 @@ logger = logging.getLogger(__name__)
 
 def _get_sac_config() -> dict:
     return {
-        "tenant_url":    os.getenv("SAC_TENANT_URL", ""),     # e.g. https://<tenant>.eu20.sapanalytics.cloud
-        "token_url":     os.getenv("SAC_TOKEN_URL", ""),
-        "client_id":     os.getenv("SAC_CLIENT_ID", ""),
+        "tenant_url": os.getenv(
+            "SAC_TENANT_URL", ""
+        ),  # e.g. https://<tenant>.eu20.sapanalytics.cloud
+        "token_url": os.getenv("SAC_TOKEN_URL", ""),
+        "client_id": os.getenv("SAC_CLIENT_ID", ""),
         "client_secret": os.getenv("SAC_CLIENT_SECRET", ""),
     }
 
 
-_sac_token: Optional[str] = None
+_sac_token: str | None = None
 
 
 async def _get_sac_token(config: dict) -> str:
@@ -29,8 +31,8 @@ async def _get_sac_token(config: dict) -> str:
         resp = await client.post(
             config["token_url"],
             data={
-                "grant_type":    "client_credentials",
-                "client_id":     config["client_id"],
+                "grant_type": "client_credentials",
+                "client_id": config["client_id"],
                 "client_secret": config["client_secret"],
             },
         )
@@ -52,7 +54,7 @@ async def push_model(model_config: dict) -> dict:
     token = await _get_sac_token(config)
     headers = {
         "Authorization": f"Bearer {token}",
-        "Content-Type":  "application/json",
+        "Content-Type": "application/json",
     }
     base = config["tenant_url"].rstrip("/")
     payload = _to_sac_payload(model_config)
@@ -84,21 +86,21 @@ async def push_model(model_config: dict) -> dict:
 def _to_sac_payload(model: dict) -> dict:
     """Map our internal SAC schema to the SAC API payload format."""
     return {
-        "modelName":   model.get("modelName"),
-        "modelType":   model.get("modelType", "Analytical"),
+        "modelName": model.get("modelName"),
+        "modelType": model.get("modelType", "Analytical"),
         "description": model.get("description", ""),
         "dimensions": [
             {
-                "id":          dim.get("id"),
-                "name":        dim.get("name"),
+                "id": dim.get("id"),
+                "name": dim.get("name"),
                 "dimensionType": dim.get("type", "Generic"),
             }
             for dim in model.get("dimensions", [])
         ],
         "measures": [
             {
-                "id":          m.get("id"),
-                "name":        m.get("name"),
+                "id": m.get("id"),
+                "name": m.get("name"),
                 "aggregationType": m.get("aggregation", "SUM"),
             }
             for m in model.get("measures", [])

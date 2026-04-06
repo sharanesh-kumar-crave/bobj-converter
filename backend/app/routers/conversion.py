@@ -1,13 +1,13 @@
-import uuid
 import logging
-from datetime import datetime
-from fastapi import APIRouter, Request, Depends, BackgroundTasks, HTTPException
+import uuid
 
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+
+from app.db.hana import execute_dml, execute_query, get_db
 from app.models.schemas import ConversionRequest, ConversionResult, JobStatus
 from app.services.ai_core import run_conversion
 from app.services.datasphere import push_entities
 from app.services.sac import push_model
-from app.db.hana import get_db, execute_dml, execute_query
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -47,9 +47,7 @@ async def start_conversion(
             ),
         )
 
-    background_tasks.add_task(
-        _run_conversion_pipeline, job_id, body
-    )
+    background_tasks.add_task(_run_conversion_pipeline, job_id, body)
 
     return ConversionResult(
         job_id=job_id,
@@ -72,6 +70,7 @@ async def get_conversion_result(job_id: str):
 
     row = rows[0]
     import json
+
     result_json = json.loads(row.get("result_json") or "{}")
 
     return ConversionResult(
@@ -112,6 +111,7 @@ async def _run_conversion_pipeline(job_id: uuid.UUID, body: ConversionRequest):
 
         # 5 — Persist full result to HANA
         import json
+
         summary = result.get("summary", {})
         async with get_db() as conn:
             execute_dml(

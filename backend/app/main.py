@@ -1,14 +1,14 @@
-import os
 import json
 import logging
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
+import os
 from contextlib import asynccontextmanager
 
-from app.db.hana import init_db, close_db
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.auth.xsuaa import verify_token
-from app.routers import conversion, projects, jobs, health
+from app.db.hana import close_db, init_db
+from app.routers import conversion, health, jobs, projects
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,8 +47,7 @@ app = FastAPI(
 
 # CORS — restrict to your BTP subaccount domain in production
 ALLOWED_ORIGINS = os.getenv(
-    "ALLOWED_ORIGINS",
-    "https://*.hana.ondemand.com,https://*.cfapps.eu20.hana.ondemand.com"
+    "ALLOWED_ORIGINS", "https://*.hana.ondemand.com,https://*.cfapps.eu20.hana.ondemand.com"
 ).split(",")
 
 app.add_middleware(

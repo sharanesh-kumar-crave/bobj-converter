@@ -1,14 +1,14 @@
-import os
-import json
-import logging
-from typing import Optional, AsyncGenerator
 import asyncio
+import logging
+import os
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+
 from hdbcli import dbapi
 
 logger = logging.getLogger(__name__)
 
-_pool: Optional[list] = None
+_pool: list | None = None
 _pool_lock = asyncio.Lock()
 _hana_config: dict = {}
 

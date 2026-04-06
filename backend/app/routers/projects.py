@@ -1,9 +1,10 @@
-import uuid
 import logging
-from fastapi import APIRouter, Request, HTTPException
-from app.models.schemas import Project, ProjectCreate, JobSummary, JobStatus, InputType
-from app.db.hana import get_db, execute_dml, execute_query
-from datetime import datetime
+import uuid
+
+from fastapi import APIRouter, HTTPException, Request
+
+from app.db.hana import execute_dml, execute_query, get_db
+from app.models.schemas import Project, ProjectCreate
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -45,9 +46,13 @@ async def create_project(request: Request, body: ProjectCreate):
             VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """,
             (
-                str(project_id), body.name, body.description,
-                body.bobj_system_name, body.datasphere_space_id,
-                body.sac_tenant_url, user_id,
+                str(project_id),
+                body.name,
+                body.description,
+                body.bobj_system_name,
+                body.datasphere_space_id,
+                body.sac_tenant_url,
+                user_id,
             ),
         )
     return Project(id=project_id, owner_user_id=user_id, **body.model_dump())

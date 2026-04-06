@@ -1,7 +1,9 @@
 from fastapi import APIRouter
-from app.db.hana import get_db, execute_query
+
+from app.db.hana import execute_query, get_db
 
 router = APIRouter()
+
 
 @router.get("")
 async def health():
