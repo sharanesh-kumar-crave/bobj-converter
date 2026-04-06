@@ -279,31 +279,4 @@ jobs:
           draft: false
           prerelease: false
 
-  # ── Notify ─────────────────────────────────────────────────────────────────
-  notify-prod:
-    name: Notify prod deployment
-    runs-on: ubuntu-latest
-    needs: [deploy-api-prod, deploy-ui-prod]
-    if: always()
-
-    steps:
-      - name: Slack notification
-        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
-        uses: slackapi/slack-github-action@v1.27.0
-        with:
-          payload: |
-            {
-              "text": "${{ (needs.deploy-api-prod.result == 'success' && needs.deploy-ui-prod.result == 'success') && '🚀 Prod deploy succeeded' || '🔥 Prod deploy FAILED — rollback initiated' }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "${{ (needs.deploy-api-prod.result == 'success') && '🚀' || '🔥' }} *BOBJ Converter — Production Deploy*\n*Version:* `${{ needs.build.outputs.version }}`\n*Triggered by:* ${{ github.actor }}\n*Reason:* ${{ github.event.inputs.reason || github.ref_name }}\n*API:* https://bobj-converter-api.${{ secrets.CF_DOMAIN_PROD }}\n*UI:*  https://bobj-converter.${{ secrets.CF_DOMAIN_PROD }}"
-                  }
-                }
-              ]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+  
