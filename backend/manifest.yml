@@ -1,0 +1,61 @@
+---
+# Cloud Foundry deployment manifest
+# Deploy with: cf push  (from project root)
+# Docs: https://docs.cloudfoundry.org/devguide/deploy-apps/manifest-attributes.html
+
+applications:
+
+  # ── Backend: FastAPI Conversion API ──────────────────────────────────────────
+  - name: bobj-converter-api
+    path: backend
+    buildpack: python_buildpack
+    memory: 512M
+    disk_quota: 512M
+    instances: 2
+    health-check-type: http
+    health-check-http-endpoint: /api/health
+    command: gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT
+
+    env:
+      PYTHONPATH: .
+      HANA_POOL_SIZE: "5"
+      LOG_LEVEL: INFO
+      # Set these in CF environment or user-provided service:
+      # DATASPHERE_BASE_URL: https://<tenant>.eu20.hana.ondemand.com
+      # DATASPHERE_SPACE_ID: <your-space>
+      # DATASPHERE_TOKEN_URL: https://<tenant>.authentication.eu20.hana.ondemand.com/oauth/token
+      # DATASPHERE_CLIENT_ID: <client-id>
+      # DATASPHERE_CLIENT_SECRET: <secret>
+      # SAC_TENANT_URL: https://<tenant>.eu20.sapanalytics.cloud
+      # SAC_TOKEN_URL: ...
+      # SAC_CLIENT_ID: ...
+      # SAC_CLIENT_SECRET: ...
+      # AICORE_RESOURCE_GROUP: default
+      # AICORE_DEPLOYMENT_ID: <your-deployment-id>
+
+    services:
+      - bobj-converter-hana        # HANA Cloud service instance
+      - bobj-converter-xsuaa       # XSUAA service instance
+      - bobj-converter-aicore      # SAP AI Core service instance
+
+    routes:
+      - route: bobj-converter-api.<YOUR_CF_DOMAIN>   # e.g. cfapps.eu20.hana.ondemand.com
+
+
+  # ── Frontend: Static UI (served via Nginx buildpack) ─────────────────────────
+  - name: bobj-converter-ui
+    path: frontend
+    buildpack: staticfile_buildpack
+    memory: 64M
+    disk_quota: 128M
+    instances: 1
+    health-check-type: process
+
+    env:
+      FORCE_HTTPS: true
+
+    services:
+      - bobj-converter-xsuaa
+
+    routes:
+      - route: bobj-converter.<YOUR_CF_DOMAIN>

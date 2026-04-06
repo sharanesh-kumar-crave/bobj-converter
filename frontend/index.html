@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOBJ Converter — SAP BTP</title>
+<style>
+:root {
+  --bg:       #f4f2ed;
+  --surface:  #ffffff;
+  --surface2: #f8f7f4;
+  --border:   rgba(0,0,0,0.10);
+  --border2:  rgba(0,0,0,0.18);
+  --text:     #1a1a18;
+  --muted:    #6b6b66;
+  --hint:     #9a9a94;
+  --teal:     #1D9E75;
+  --teal-dk:  #0F6E56;
+  --teal-lt:  #E1F5EE;
+  --purple:   #534AB7;
+  --purple-lt:#EEEDFE;
+  --amber:    #BA7517;
+  --amber-lt: #FAEEDA;
+  --red:      #A32D2D;
+  --red-lt:   #FCEBEB;
+  --radius:   8px;
+  --radius-lg:12px;
+  font-size: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:       #1a1a18;
+    --surface:  #242422;
+    --surface2: #2c2c2a;
+    --border:   rgba(255,255,255,0.10);
+    --border2:  rgba(255,255,255,0.18);
+    --text:     #e8e6df;
+    --muted:    #9a9994;
+    --hint:     #6b6b66;
+    --teal-lt:  #04342C;
+    --purple-lt:#26215C;
+    --amber-lt: #412402;
+    --red-lt:   #501313;
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+       background: var(--bg); color: var(--text); min-height: 100vh; }
+
+/* ── Layout ── */
+.app-shell { display: flex; min-height: 100vh; }
+.sidebar { width: 220px; background: var(--surface); border-right: 1px solid var(--border);
+           display: flex; flex-direction: column; flex-shrink: 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.main { flex: 1; padding: 32px; overflow-y: auto; max-width: 980px; }
+
+/* ── Sidebar ── */
+.sidebar-logo { padding: 20px 16px 12px; border-bottom: 1px solid var(--border); }
+.sidebar-logo .logo-line { display: flex; align-items: center; gap: 8px; }
+.logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--teal); flex-shrink: 0; }
+.sidebar-logo h2 { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+.sidebar-logo p  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.sidebar-nav { padding: 12px 8px; flex: 1; }
+.nav-section { font-size: 10px; font-weight: 600; color: var(--hint); letter-spacing: 0.07em;
+               padding: 8px 8px 4px; text-transform: uppercase; }
+.nav-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+            border-radius: var(--radius); font-size: 13px; color: var(--muted);
+            cursor: pointer; user-select: none; transition: all 0.12s; margin-bottom: 1px; }
+.nav-item:hover { background: var(--surface2); color: var(--text); }
+.nav-item.active { background: var(--teal-lt); color: var(--teal-dk); font-weight: 500; }
+.nav-icon { font-size: 14px; width: 18px; text-align: center; }
+.sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); }
+.user-chip { display: flex; align-items: center; gap: 8px; }
+.user-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--purple-lt);
+               color: var(--purple); font-size: 11px; font-weight: 600;
+               display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.user-name { font-size: 12px; font-weight: 500; }
+.user-role { font-size: 11px; color: var(--muted); }
+
+/* ── Page header ── */
+.page-header { margin-bottom: 24px; }
+.page-header h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+.page-header p  { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+
+/* ── Cards ── */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+.card-title { font-size: 13px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
+
+/* ── Metric grid ── */
+.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 20px; }
+.metric { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
+          padding: 14px 16px; }
+.metric-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; font-weight: 500; }
+.metric-value { font-size: 26px; font-weight: 600; letter-spacing: -0.03em; }
+.metric-value.teal   { color: var(--teal); }
+.metric-value.amber  { color: var(--amber); }
+.metric-value.red    { color: var(--red); }
+.metric-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* ── Buttons ── */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px;
+       border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer;
+       border: 1px solid var(--border2); background: var(--surface); color: var(--text);
+       transition: all 0.12s; text-decoration: none; }
+.btn:hover { background: var(--surface2); }
+.btn:active { transform: scale(0.98); }
+.btn-primary { background: var(--teal); color: #fff; border-color: var(--teal); }
+.btn-primary:hover { background: var(--teal-dk); border-color: var(--teal-dk); }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-icon { padding: 6px 8px; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+
+/* ── Input tabs ── */
+.input-tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.input-tab { padding: 6px 14px; border-radius: var(--radius); border: 1px solid var(--border2);
+             background: transparent; color: var(--muted); font-size: 12px; font-weight: 500;
+             cursor: pointer; transition: all 0.12s; }
+.input-tab:hover { background: var(--surface2); color: var(--text); }
+.input-tab.active { background: var(--surface); border-color: var(--teal); color: var(--teal-dk); }
+
+/* ── Textarea ── */
+textarea, input[type=text], input[type=url], select {
+  width: 100%; padding: 9px 12px; border: 1px solid var(--border2);
+  border-radius: var(--radius); background: var(--surface2); color: var(--text);
+  font-family: inherit; font-size: 13px; outline: none; transition: border 0.12s; }
+textarea { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; line-height: 1.65; resize: vertical; min-height: 180px; }
+textarea:focus, input:focus, select:focus { border-color: var(--teal); }
+textarea::placeholder, input::placeholder { color: var(--hint); }
+label { font-size: 12px; font-weight: 500; color: var(--muted); display: block; margin-bottom: 5px; }
+.field { margin-bottom: 14px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* ── Stepper ── */
+.stepper { display: flex; align-items: center; gap: 0; margin-bottom: 24px;
+           background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.step-item { flex: 1; display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+             font-size: 12px; font-weight: 500; color: var(--muted);
+             border-right: 1px solid var(--border); }
+.step-item:last-child { border-right: none; }
+.step-item.active { background: var(--surface2); color: var(--text); }
+.step-item.done   { color: var(--teal); }
+.step-num { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border2);
+            display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
+.step-item.active .step-num, .step-item.done .step-num { background: var(--teal); color: #fff; border-color: var(--teal); }
+
+/* ── Progress ── */
+.progress-wrap { height: 4px; background: var(--surface2); border-radius: 2px; overflow: hidden; margin: 12px 0; }
+.progress-bar  { height: 100%; background: var(--teal); border-radius: 2px;
+                 transition: width 0.4s ease; }
+
+/* ── Badge ── */
+.badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px;
+         border-radius: var(--radius); font-size: 11px; font-weight: 500; }
+.badge-green  { background: var(--teal-lt);   color: var(--teal-dk); }
+.badge-amber  { background: var(--amber-lt);  color: var(--amber); }
+.badge-red    { background: var(--red-lt);    color: var(--red); }
+.badge-purple { background: var(--purple-lt); color: var(--purple); }
+.badge-gray   { background: var(--surface2);  color: var(--muted); border: 1px solid var(--border); }
+
+/* ── Result tabs ── */
+.result-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.result-tab { padding: 8px 14px; font-size: 12px; font-weight: 500; color: var(--muted);
+              background: none; border: none; cursor: pointer;
+              border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.12s; }
+.result-tab:hover { color: var(--text); }
+.result-tab.active { color: var(--teal); border-bottom-color: var(--teal); }
+
+/* ── Code block ── */
+.code-block { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
+              padding: 12px 14px; font-family: monospace; font-size: 11.5px; line-height: 1.7;
+              overflow: auto; max-height: 360px; white-space: pre; color: var(--text); }
+
+/* ── Table ── */
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.data-table th { text-align: left; padding: 8px 10px; font-size: 11px; font-weight: 600;
+                 color: var(--muted); border-bottom: 1px solid var(--border);
+                 background: var(--surface2); position: sticky; top: 0; }
+.data-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: var(--surface2); }
+.table-wrap { overflow: auto; max-height: 380px; border-radius: var(--radius); border: 1px solid var(--border); }
+.mono { font-family: monospace; font-size: 11px; }
+
+/* ── Entity cards ── */
+.entity-card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
+               padding: 12px 14px; margin-bottom: 8px; }
+.entity-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.entity-name { font-size: 13px; font-weight: 600; font-family: monospace; }
+.col-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.col-pill { font-size: 10px; padding: 2px 7px; background: var(--surface); border: 1px solid var(--border);
+            border-radius: 4px; color: var(--muted); font-family: monospace; }
+.col-pill.key { border-color: var(--teal); color: var(--teal-dk); }
+
+/* ── Spinner ── */
+.spinner { width: 32px; height: 32px; border: 2.5px solid var(--border2); border-top-color: var(--teal);
+           border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Job list ── */
+.job-row { display: flex; align-items: center; gap: 12px; padding: 10px 0;
+           border-bottom: 1px solid var(--border); cursor: pointer; }
+.job-row:last-child { border-bottom: none; }
+.job-row:hover .job-name { color: var(--teal); }
+.job-name { font-size: 13px; font-weight: 500; }
+.job-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.job-badge { margin-left: auto; flex-shrink: 0; }
+
+/* ── Inline alert ── */
+.alert { padding: 10px 14px; border-radius: var(--radius); font-size: 12px; margin-bottom: 14px; }
+.alert-error { background: var(--red-lt); color: var(--red); border: 1px solid rgba(163,45,45,0.2); }
+.alert-info  { background: var(--teal-lt); color: var(--teal-dk); border: 1px solid rgba(29,158,117,0.2); }
+
+/* ── Section label ── */
+.section-label { font-size: 11px; font-weight: 600; color: var(--hint); letter-spacing: 0.06em;
+                 text-transform: uppercase; margin-bottom: 10px; }
+
+/* ── Download row ── */
+.dl-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+
+/* ── Recommendation list ── */
+.rec-list { margin: 0; padding: 0; list-style: none; }
+.rec-list li { display: flex; gap: 8px; align-items: flex-start; padding: 7px 0;
+               border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+.rec-list li:last-child { border-bottom: none; }
+.rec-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); margin-top: 5px; flex-shrink: 0; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* ── Responsive ── */
+@media (max-width: 700px) {
+  .sidebar { display: none; }
+  .main { padding: 16px; }
+  .metric-grid { grid-template-columns: 1fr 1fr; }
+  .field-row { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-line">
+        <div class="logo-dot"></div>
+        <h2>BOBJ Converter</h2>
+      </div>
+      <p>SAP BTP · Datasphere · SAC</p>
+    </div>
+    <div class="sidebar-nav">
+      <div class="nav-section">Workspace</div>
+      <div class="nav-item active" onclick="showPage('convert')">
+        <span class="nav-icon">⟳</span> New conversion
+      </div>
+      <div class="nav-item" onclick="showPage('jobs')">
+        <span class="nav-icon">≡</span> Conversion jobs
+      </div>
+      <div class="nav-item" onclick="showPage('projects')">
+        <span class="nav-icon">◫</span> Projects
+      </div>
+      <div class="nav-section" style="margin-top:8px;">Outputs</div>
+      <div class="nav-item" onclick="showPage('datasphere')">
+        <span class="nav-icon">◈</span> Datasphere entities
+      </div>
+      <div class="nav-item" onclick="showPage('sac')">
+        <span class="nav-icon">◉</span> SAC models
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <div class="user-chip">
+        <div class="user-avatar" id="userAvatar">--</div>
+        <div>
+          <div class="user-name" id="userName">Loading...</div>
+          <div class="user-role" id="userRole">Publisher</div>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main class="main">
+    <!-- ── Convert page ── -->
+    <div id="page-convert">
+      <div class="header-row">
+        <div class="page-header">
+          <h1>New conversion</h1>
+          <p>Upload or paste a BOBJ artifact and convert it to Datasphere + SAC</p>
+        </div>
+      </div>
+
+      <div class="stepper" id="stepper">
+        <div class="step-item active" id="s1"><div class="step-num">1</div> Input artifact</div>
+        <div class="step-item"        id="s2"><div class="step-num">2</div> AI analysis</div>
+        <div class="step-item"        id="s3"><div class="step-num">3</div> Download outputs</div>
+      </div>
+
+      <!-- Step 1: Input -->
+      <div id="step1">
+        <div class="card">
+          <div class="card-title">Artifact details</div>
+          <div class="field-row">
+            <div class="field">
+              <label>Artifact name</label>
+              <input type="text" id="artifactName" placeholder="e.g. Sales_Universe_v3">
+            </div>
+            <div class="field">
+              <label>Project (optional)</label>
+              <select id="projectSelect"><option value="">— no project —</option></select>
+            </div>
+          </div>
+          <div class="field">
+            <label>Input type</label>
+            <div class="input-tabs">
+              <button class="input-tab active" onclick="setInputType('universe_xml',this)">Universe XML / .unv</button>
+              <button class="input-tab"        onclick="setInputType('report_rpt',this)">Report metadata (.rpt)</button>
+              <button class="input-tab"        onclick="setInputType('manual',this)">Manual description</button>
+            </div>
+          </div>
+          <div class="field">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <label style="margin:0;">BOBJ artifact content</label>
+              <button class="btn btn-sm" onclick="loadSample()">Load sample</button>
+            </div>
+            <textarea id="artifactContent" rows="10" placeholder="Paste Universe XML, .rpt report metadata, or describe your BOBJ objects..."></textarea>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-primary" id="convertBtn" onclick="startConversion()">
+              Convert with AI →
+            </button>
+            <span style="font-size:11px;color:var(--muted);">Powered by SAP AI Core</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Analyzing -->
+      <div id="step2" style="display:none;">
+        <div class="card" style="text-align:center;padding:48px 20px;">
+          <div class="spinner" style="margin:0 auto 16px;"></div>
+          <div style="font-size:16px;font-weight:600;margin-bottom:6px;" id="analysisLabel">Analyzing artifact...</div>
+          <p style="font-size:13px;color:var(--muted);" id="analysisSubtitle">Sending to SAP AI Core for conversion</p>
+          <div class="progress-wrap" style="max-width:320px;margin:16px auto 0;">
+            <div class="progress-bar" id="progressBar" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: Results -->
+      <div id="step3" style="display:none;">
+        <div id="conversionError" style="display:none;"></div>
+
+        <!-- Summary metrics -->
+        <div class="metric-grid" id="summaryMetrics"></div>
+
+        <!-- Download row -->
+        <div class="card" style="padding:16px;">
+          <div class="card-title">Download outputs</div>
+          <div class="dl-row">
+            <button class="btn btn-sm" onclick="downloadOutput('datasphere')">↓ Datasphere JSON</button>
+            <button class="btn btn-sm" onclick="downloadOutput('sac')">↓ SAC Config JSON</button>
+            <button class="btn btn-sm" onclick="downloadOutput('mapping')">↓ Mapping CSV</button>
+            <button class="btn btn-sm" onclick="downloadOutput('all')">↓ All outputs</button>
+            <button class="btn btn-sm" style="margin-left:auto;" onclick="pushToDatasphere()">Push to Datasphere ↑</button>
+            <button class="btn btn-sm" onclick="pushToSAC()">Push to SAC ↑</button>
+          </div>
+          <div id="pushStatus"></div>
+        </div>
+
+        <!-- Result tabs -->
+        <div class="card">
+          <div class="result-tabs">
+            <button class="result-tab active" onclick="setResultTab('entities',this)">Datasphere entities</button>
+            <button class="result-tab"        onclick="setResultTab('ds-json',this)">Datasphere JSON</button>
+            <button class="result-tab"        onclick="setResultTab('sac-json',this)">SAC config JSON</button>
+            <button class="result-tab"        onclick="setResultTab('mapping',this)">Mapping report</button>
+            <button class="result-tab"        onclick="setResultTab('recommendations',this)">Recommendations</button>
+          </div>
+          <div id="resultContent"></div>
+        </div>
+
+        <div style="margin-top:8px;">
+          <button class="btn btn-sm" onclick="resetConversion()">← New conversion</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Jobs page ── -->
+    <div id="page-jobs" style="display:none;">
+      <div class="header-row">
+        <div class="page-header"><h1>Conversion jobs</h1><p>All your past conversion runs</p></div>
+        <button class="btn btn-primary btn-sm" onclick="showPage('convert')">New conversion</button>
+      </div>
+      <div class="card">
+        <div id="jobList"><div style="color:var(--muted);font-size:13px;">Loading jobs...</div></div>
+      </div>
+    </div>
+
+    <!-- ── Projects page ── -->
+    <div id="page-projects" style="display:none;">
+      <div class="header-row">
+        <div class="page-header"><h1>Projects</h1><p>Organise conversions by BOBJ system or migration phase</p></div>
+        <button class="btn btn-primary btn-sm" onclick="showCreateProject()">+ New project</button>
+      </div>
+      <div id="createProjectForm" style="display:none;" class="card">
+        <div class="card-title">New project</div>
+        <div class="field-row">
+          <div class="field"><label>Project name *</label><input type="text" id="newProjName" placeholder="Q3 BOBJ Migration"></div>
+          <div class="field"><label>BOBJ system</label><input type="text" id="newProjBobj" placeholder="BOBJ-PROD-EU"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Datasphere space ID</label><input type="text" id="newProjDS" placeholder="SALES_SPACE"></div>
+          <div class="field"><label>SAC tenant URL</label><input type="url" id="newProjSAC" placeholder="https://tenant.sapanalytics.cloud"></div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary btn-sm" onclick="createProject()">Create</button>
+          <button class="btn btn-sm" onclick="document.getElementById('createProjectForm').style.display='none'">Cancel</button>
+        </div>
+      </div>
+      <div class="card"><div id="projectList"><div style="color:var(--muted);font-size:13px;">Loading projects...</div></div></div>
+    </div>
+
+    <!-- ── Datasphere page ── -->
+    <div id="page-datasphere" style="display:none;">
+      <div class="page-header"><h1>Datasphere entities</h1><p>Generated entity definitions ready to push</p></div>
+      <div class="card"><div id="datasphereList"><div style="color:var(--muted);font-size:13px;">Run a conversion first to see entities here.</div></div></div>
+    </div>
+
+    <!-- ── SAC page ── -->
+    <div id="page-sac" style="display:none;">
+      <div class="page-header"><h1>SAC models</h1><p>Generated SAC model configurations</p></div>
+      <div class="card"><div id="sacList"><div style="color:var(--muted);font-size:13px;">Run a conversion first to see SAC models here.</div></div></div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ── Config ─────────────────────────────────────────────────────────────────────
+const API_BASE = (window._env && window._env.API_URL) || '';   // set by CF env injection
+
+// ── State ──────────────────────────────────────────────────────────────────────
+let state = {
+  currentPage: 'convert',
+  inputType: 'universe_xml',
+  conversionResult: null,
+  resultTab: 'entities',
+  jobId: null,
+  pollTimer: null,
+  projects: [],
+};
+
+// ── Auth helpers ────────────────────────────────────────────────────────────────
+function getToken() {
+  // In production: XSUAA issues the token and stores it in a cookie or sessionStorage.
+  // Build Work Zone app router injects it as a header automatically.
+  // For local dev, you can put a test token here.
+  return sessionStorage.getItem('bobj_token') || '';
+}
+
+async function apiFetch(path, opts = {}) {
+  const token = getToken();
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`${res.status}: ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+// ── Navigation ──────────────────────────────────────────────────────────────────
+function showPage(name) {
+  state.currentPage = name;
+  document.querySelectorAll('[id^="page-"]').forEach(el => el.style.display = 'none');
+  document.getElementById('page-' + name).style.display = '';
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(el => {
+    if (el.getAttribute('onclick')?.includes(`'${name}'`)) el.classList.add('active');
+  });
+  if (name === 'jobs') loadJobs();
+  if (name === 'projects') loadProjects();
+}
+
+// ── User info ───────────────────────────────────────────────────────────────────
+function initUser() {
+  const token = getToken();
+  if (!token) {
+    document.getElementById('userName').textContent = 'Guest';
+    document.getElementById('userAvatar').textContent = 'G';
+    return;
+  }
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const name = payload.given_name || payload.email || payload.sub || 'User';
+    const initials = name.slice(0, 2).toUpperCase();
+    document.getElementById('userName').textContent = name;
+    document.getElementById('userAvatar').textContent = initials;
+    const scopes = (payload.scope || '').split(' ');
+    const role = scopes.some(s => s.includes('admin')) ? 'Admin'
+               : scopes.some(s => s.includes('push'))    ? 'Publisher'
+               : scopes.some(s => s.includes('convert')) ? 'Converter' : 'Viewer';
+    document.getElementById('userRole').textContent = role;
+  } catch {}
+}
+
+// ── Projects loader ─────────────────────────────────────────────────────────────
+async function loadProjects() {
+  try {
+    const projects = await apiFetch('/api/v1/projects');
+    state.projects = projects;
+    renderProjectList(projects);
+    const sel = document.getElementById('projectSelect');
+    sel.innerHTML = '<option value="">— no project —</option>';
+    projects.forEach(p => sel.innerHTML += `<option value="${p.id}">${p.name}</option>`);
+  } catch (e) {
+    document.getElementById('projectList').innerHTML =
+      `<div class="alert alert-error">Failed to load projects: ${e.message}</div>`;
+  }
+}
+
+function renderProjectList(projects) {
+  const el = document.getElementById('projectList');
+  if (!projects.length) {
+    el.innerHTML = '<p style="color:var(--muted);font-size:13px;">No projects yet. Create one to group your conversions.</p>';
+    return;
+  }
+  el.innerHTML = projects.map(p => `
+    <div class="job-row">
+      <div>
+        <div class="job-name">${esc(p.name)}</div>
+        <div class="job-meta">${esc(p.bobj_system_name || '—')} &nbsp;·&nbsp; ${p.job_count || 0} jobs &nbsp;·&nbsp; ${fmtDate(p.updated_at)}</div>
+      </div>
+      <button class="btn btn-sm job-badge" onclick="deleteProject('${p.id}')">Delete</button>
+    </div>
+  `).join('');
+}
+
+async function createProject() {
+  const name = document.getElementById('newProjName').value.trim();
+  if (!name) { alert('Project name is required'); return; }
+  try {
+    await apiFetch('/api/v1/projects', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        bobj_system_name:    document.getElementById('newProjBobj').value || null,
+        datasphere_space_id: document.getElementById('newProjDS').value || null,
+        sac_tenant_url:      document.getElementById('newProjSAC').value || null,
+      }),
+    });
+    document.getElementById('createProjectForm').style.display = 'none';
+    loadProjects();
+  } catch (e) {
+    alert('Failed to create project: ' + e.message);
+  }
+}
+
+async function deleteProject(id) {
+  if (!confirm('Delete this project?')) return;
+  try {
+    await apiFetch(`/api/v1/projects/${id}`, { method: 'DELETE' });
+    loadProjects();
+  } catch (e) { alert(e.message); }
+}
+
+function showCreateProject() {
+  document.getElementById('createProjectForm').style.display = '';
+}
+
+// ── Jobs loader ─────────────────────────────────────────────────────────────────
+async function loadJobs() {
+  try {
+    const jobs = await apiFetch('/api/v1/jobs');
+    renderJobList(jobs);
+  } catch (e) {
+    document.getElementById('jobList').innerHTML =
+      `<div class="alert alert-error">Failed to load jobs: ${e.message}</div>`;
+  }
+}
+
+function renderJobList(jobs) {
+  const el = document.getElementById('jobList');
+  if (!jobs.length) {
+    el.innerHTML = '<p style="color:var(--muted);font-size:13px;">No conversion jobs yet.</p>';
+    return;
+  }
+  const statusBadge = s => ({
+    completed: '<span class="badge badge-green">Completed</span>',
+    failed:    '<span class="badge badge-red">Failed</span>',
+    running:   '<span class="badge badge-amber">Running</span>',
+    pending:   '<span class="badge badge-gray">Pending</span>',
+  })[s] || `<span class="badge badge-gray">${s}</span>`;
+
+  el.innerHTML = jobs.map(j => `
+    <div class="job-row" onclick="loadJobResult('${j.id}')">
+      <div style="flex:1;">
+        <div class="job-name">${esc(j.artifact_name)}</div>
+        <div class="job-meta">${esc(j.input_type.replace('_',' '))} &nbsp;·&nbsp; ${fmtDate(j.created_at)}</div>
+      </div>
+      <div style="text-align:right;">
+        ${statusBadge(j.status)}
+        ${j.total_objects ? `<div class="job-meta" style="margin-top:2px;">${j.converted}/${j.total_objects} converted</div>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function loadJobResult(jobId) {
+  showPage('convert');
+  try {
+    const result = await apiFetch(`/api/v1/conversions/${jobId}`);
+    state.conversionResult = {
+      datasphereEntities: result.datasphere_entities,
+      sacModelConfig:     result.sac_model_config,
+      conversionMapping:  result.conversion_mapping,
+      summary:            result.summary,
+    };
+    state.jobId = jobId;
+    setStep(3);
+    renderResults();
+  } catch (e) { alert('Failed to load result: ' + e.message); }
+}
+
+// ── Conversion flow ─────────────────────────────────────────────────────────────
+function setInputType(type, btn) {
+  state.inputType = type;
+  document.querySelectorAll('.input-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('artifactContent').value = '';
+}
+
+function loadSample() {
+  const samples = {
+    universe_xml: `<Universe name="Sales_Analytics_Universe" version="14.0">
+  <DataFoundation>
+    <Table name="FACT_SALES" type="Fact">
+      <Column name="SALE_ID" type="INTEGER" isPrimaryKey="true"/>
+      <Column name="DATE_KEY" type="INTEGER"/>
+      <Column name="CUSTOMER_KEY" type="INTEGER"/>
+      <Column name="REVENUE" type="DECIMAL"/>
+      <Column name="QUANTITY" type="INTEGER"/>
+    </Table>
+    <Table name="DIM_CUSTOMER" type="Dimension">
+      <Column name="CUSTOMER_KEY" type="INTEGER" isPrimaryKey="true"/>
+      <Column name="CUSTOMER_NAME" type="VARCHAR"/>
+      <Column name="SEGMENT" type="VARCHAR"/>
+      <Column name="COUNTRY" type="VARCHAR"/>
+    </Table>
+    <Table name="DIM_DATE" type="Dimension">
+      <Column name="DATE_KEY" type="INTEGER" isPrimaryKey="true"/>
+      <Column name="YEAR" type="INTEGER"/>
+      <Column name="QUARTER" type="VARCHAR"/>
+      <Column name="MONTH_NAME" type="VARCHAR"/>
+    </Table>
+  </DataFoundation>
+  <BusinessLayer>
+    <Class name="Sales Metrics">
+      <Measure name="Total Revenue" expression="SUM(FACT_SALES.REVENUE)" dataType="DECIMAL"/>
+      <Measure name="Quantity Sold" expression="SUM(FACT_SALES.QUANTITY)" dataType="INTEGER"/>
+    </Class>
+    <Class name="Customer">
+      <Dimension name="Customer Name" expression="DIM_CUSTOMER.CUSTOMER_NAME"/>
+      <Dimension name="Segment"       expression="DIM_CUSTOMER.SEGMENT"/>
+      <Dimension name="Country"       expression="DIM_CUSTOMER.COUNTRY"/>
+    </Class>
+    <Class name="Time">
+      <Dimension name="Year"    expression="DIM_DATE.YEAR"/>
+      <Dimension name="Quarter" expression="DIM_DATE.QUARTER"/>
+      <Dimension name="Month"   expression="DIM_DATE.MONTH_NAME"/>
+    </Class>
+  </BusinessLayer>
+</Universe>`,
+    report_rpt: `Report Name: Monthly Sales Performance Dashboard
+Universe: Sales_Analytics_Universe
+
+Query 1 - Revenue Summary:
+  Objects: Year, Quarter, Month, Total Revenue, Quantity Sold
+  Filters: Year = Current Year
+  Sort: Year ASC, Quarter ASC
+
+Query 2 - Customer Analysis:
+  Objects: Customer Name, Segment, Country, Total Revenue
+  Filters: Segment IN ('Enterprise','SMB')
+  Top N: 10 by Total Revenue
+
+Sections:
+  KPI Cards: Total Revenue, Quantity Sold
+  Line Chart: Revenue by Month (Year over Year)
+  Bar Chart: Revenue by Customer Segment
+  Table: Top 10 Customers
+
+Calculated Members:
+  Revenue Growth % = (Current - Prior) / Prior * 100`,
+    manual: `Universe: Finance_Consolidation
+Objects:
+1. Company Code (Dimension) - T001.BUKRS
+2. Fiscal Year (Dimension) - ACDOCA.GJAHR
+3. GL Account (Dimension) - SKA1.SAKNR
+4. Profit Center (Dimension) - ACDOCA.PRCTR
+5. Amount Local Currency (Measure) - SUM(ACDOCA.HSL)
+6. Amount Group Currency (Measure) - SUM(ACDOCA.KSL)
+Joins: ACDOCA.BUKRS = T001.BUKRS, ACDOCA.SAKNR = SKA1.SAKNR`
+  };
+  document.getElementById('artifactContent').value = samples[state.inputType] || '';
+  document.getElementById('artifactName').value = state.inputType === 'universe_xml' ? 'Sales_Universe'
+    : state.inputType === 'report_rpt' ? 'Monthly_Sales_Report' : 'Finance_Consolidation';
+}
+
+async function startConversion() {
+  const content = document.getElementById('artifactContent').value.trim();
+  const name    = document.getElementById('artifactName').value.trim();
+  if (!content) { alert('Please paste or type an artifact first.'); return; }
+  if (!name)    { alert('Please enter an artifact name.'); return; }
+
+  setStep(2);
+  animateProgress();
+
+  try {
+    // Submit job
+    const job = await apiFetch('/api/v1/conversions', {
+      method: 'POST',
+      body: JSON.stringify({
+        input_type:    state.inputType,
+        artifact_name: name,
+        raw_content:   content,
+        project_id:    document.getElementById('projectSelect').value || null,
+      }),
+    });
+    state.jobId = job.job_id;
+    // Poll for result
+    await pollJobResult(job.job_id);
+  } catch (e) {
+    setStep(3);
+    document.getElementById('conversionError').style.display = '';
+    document.getElementById('conversionError').innerHTML =
+      `<div class="alert alert-error">Conversion failed: ${e.message}</div>`;
+    clearInterval(state.pollTimer);
+    stopProgress();
+  }
+}
+
+async function pollJobResult(jobId) {
+  const POLL_INTERVAL = 2500;
+  const MAX_POLLS = 60;
+  let polls = 0;
+  return new Promise((resolve, reject) => {
+    state.pollTimer = setInterval(async () => {
+      polls++;
+      if (polls > MAX_POLLS) {
+        clearInterval(state.pollTimer);
+        reject(new Error('Timed out waiting for conversion result.'));
+        return;
+      }
+      try {
+        const result = await apiFetch(`/api/v1/conversions/${jobId}`);
+        updateAnalysisLabel(result.status, polls);
+        if (result.status === 'completed') {
+          clearInterval(state.pollTimer);
+          state.conversionResult = {
+            datasphereEntities: result.datasphere_entities,
+            sacModelConfig:     result.sac_model_config,
+            conversionMapping:  result.conversion_mapping,
+            summary:            result.summary,
+          };
+          stopProgress(true);
+          setTimeout(() => { setStep(3); renderResults(); }, 400);
+          resolve();
+        } else if (result.status === 'failed') {
+          clearInterval(state.pollTimer);
+          reject(new Error(result.error || 'Job failed'));
+        }
+      } catch (e) { /* ignore transient poll errors */ }
+    }, POLL_INTERVAL);
+  });
+}
+
+function updateAnalysisLabel(status, poll) {
+  const labels = ['Sending to SAP AI Core...', 'Parsing BOBJ artifact...', 'Generating Datasphere entities...', 'Building SAC model config...', 'Writing mapping report...'];
+  document.getElementById('analysisLabel').textContent = 'Analyzing artifact...';
+  document.getElementById('analysisSubtitle').textContent = labels[Math.min(poll - 1, labels.length - 1)];
+}
+
+let progressInterval;
+function animateProgress() {
+  let pct = 0;
+  const bar = document.getElementById('progressBar');
+  progressInterval = setInterval(() => {
+    pct = Math.min(pct + Math.random() * 4, 85);
+    bar.style.width = pct + '%';
+  }, 300);
+}
+function stopProgress(complete = false) {
+  clearInterval(progressInterval);
+  document.getElementById('progressBar').style.width = complete ? '100%' : '0%';
+}
+
+// ── Steps ───────────────────────────────────────────────────────────────────────
+function setStep(n) {
+  ['step1','step2','step3'].forEach((id, i) => {
+    document.getElementById(id).style.display = i + 1 === n ? '' : 'none';
+  });
+  ['s1','s2','s3'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    el.classList.remove('active','done');
+    if (i + 1 === n)      el.classList.add('active');
+    else if (i + 1 < n)   el.classList.add('done');
+    el.querySelector('.step-num').textContent = i + 1 < n ? '✓' : i + 1;
+  });
+}
+
+function resetConversion() {
+  state.conversionResult = null;
+  state.jobId = null;
+  document.getElementById('conversionError').style.display = 'none';
+  document.getElementById('artifactContent').value = '';
+  document.getElementById('artifactName').value = '';
+  setStep(1);
+}
+
+// ── Results rendering ───────────────────────────────────────────────────────────
+function renderResults() {
+  const r = state.conversionResult;
+  if (!r) return;
+
+  // Summary metrics
+  const s = r.summary || {};
+  document.getElementById('summaryMetrics').innerHTML = `
+    <div class="metric"><div class="metric-label">Total objects</div><div class="metric-value">${s.totalObjects || s.total_objects || '—'}</div></div>
+    <div class="metric"><div class="metric-label">Converted</div><div class="metric-value teal">${s.converted || '—'}</div><div class="metric-sub">auto-converted</div></div>
+    <div class="metric"><div class="metric-label">Manual review</div><div class="metric-value amber">${s.manualReview || s.manual_review || '—'}</div></div>
+    <div class="metric"><div class="metric-label">Not supported</div><div class="metric-value red">${s.notSupported || s.not_supported || '—'}</div></div>
+  `;
+
+  renderResultTab(state.resultTab);
+
+  // Populate sidebar pages
+  renderDatasphereList(r.datasphereEntities || []);
+  renderSACList(r.sacModelConfig);
+}
+
+function setResultTab(tab, btn) {
+  state.resultTab = tab;
+  document.querySelectorAll('.result-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderResultTab(tab);
+}
+
+function renderResultTab(tab) {
+  const r = state.conversionResult;
+  const el = document.getElementById('resultContent');
+  if (!r) return;
+
+  if (tab === 'entities') {
+    const entities = r.datasphereEntities || [];
+    if (!entities.length) { el.innerHTML = '<p style="color:var(--muted);">No entities generated.</p>'; return; }
+    el.innerHTML = entities.map(e => `
+      <div class="entity-card">
+        <div class="entity-header">
+          <span class="entity-name">${esc(e.entityName || e.entity_name || '')}</span>
+          <span class="badge badge-purple">${esc(e.entityType || e.entity_type || 'View')}</span>
+        </div>
+        ${e.description ? `<p style="font-size:11px;color:var(--muted);margin-bottom:8px;">${esc(e.description)}</p>` : ''}
+        <div class="col-pills">
+          ${(e.columns || []).map(c => `<span class="col-pill ${(c.keyColumn||c.key_column) ? 'key' : ''}">${esc(c.name)} <span style="opacity:.6">${esc(c.dataType||c.data_type||'')}</span></span>`).join('')}
+        </div>
+      </div>
+    `).join('');
+  }
+  else if (tab === 'ds-json') {
+    el.innerHTML = `<div class="code-block">${esc(JSON.stringify(r.datasphereEntities, null, 2))}</div>`;
+  }
+  else if (tab === 'sac-json') {
+    el.innerHTML = `<div class="code-block">${esc(JSON.stringify(r.sacModelConfig, null, 2))}</div>`;
+  }
+  else if (tab === 'mapping') {
+    const mapping = r.conversionMapping || [];
+    if (!mapping.length) { el.innerHTML = '<p style="color:var(--muted);">No mapping data.</p>'; return; }
+    const statusBadge = s => {
+      if (!s) return '';
+      const cls = s.toLowerCase().includes('convert') ? 'badge-green' : s.toLowerCase().includes('manual') ? 'badge-amber' : 'badge-red';
+      return `<span class="badge ${cls}">${esc(s.replace('Manual Review Required','Review').replace('Not Supported','N/A'))}</span>`;
+    };
+    el.innerHTML = `
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Source object</th><th>Source type</th><th>Target object</th><th>Target type</th><th>Status</th><th>Notes</th></tr></thead>
+          <tbody>
+            ${mapping.map(m => `
+              <tr>
+                <td class="mono">${esc(m.sourceObject||m.source_object||'')}</td>
+                <td>${esc(m.sourceType||m.source_type||'')}</td>
+                <td class="mono">${esc(m.targetObject||m.target_object||'')}</td>
+                <td>${esc(m.targetType||m.target_type||'')}</td>
+                <td>${statusBadge(m.status)}</td>
+                <td style="color:var(--muted);">${esc(m.notes||'')}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }
+  else if (tab === 'recommendations') {
+    const recs = (r.summary || {}).recommendations || [];
+    if (!recs.length) { el.innerHTML = '<p style="color:var(--muted);">No recommendations.</p>'; return; }
+    el.innerHTML = `<ul class="rec-list">${recs.map(r => `<li><div class="rec-dot"></div><span>${esc(r)}</span></li>`).join('')}</ul>`;
+  }
+}
+
+function renderDatasphereList(entities) {
+  const el = document.getElementById('datasphereList');
+  if (!entities.length) return;
+  el.innerHTML = entities.map(e => `
+    <div class="entity-card">
+      <div class="entity-header">
+        <span class="entity-name">${esc(e.entityName||e.entity_name||'')}</span>
+        <span class="badge badge-purple">${esc(e.entityType||e.entity_type||'')}</span>
+      </div>
+      <div class="col-pills">${(e.columns||[]).map(c => `<span class="col-pill">${esc(c.name)}</span>`).join('')}</div>
+    </div>`).join('');
+}
+
+function renderSACList(model) {
+  const el = document.getElementById('sacList');
+  if (!model) return;
+  el.innerHTML = `
+    <div class="entity-card">
+      <div class="entity-header">
+        <span class="entity-name">${esc(model.modelName||model.model_name||'')}</span>
+        <span class="badge badge-green">${esc(model.modelType||model.model_type||'')}</span>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px;">${esc(model.description||'')}</p>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Dimensions</div>
+      <div class="col-pills">${(model.dimensions||[]).map(d => `<span class="col-pill">${esc(d.name)}</span>`).join('')}</div>
+      <div style="font-size:11px;color:var(--muted);margin:8px 0 4px;">Measures</div>
+      <div class="col-pills">${(model.measures||[]).map(m => `<span class="col-pill key">${esc(m.name)} <span style="opacity:.6">${esc(m.aggregation||'SUM')}</span></span>`).join('')}</div>
+    </div>`;
+}
+
+// ── Push to Datasphere / SAC ────────────────────────────────────────────────────
+async function pushToDatasphere() {
+  if (!state.jobId) return;
+  const el = document.getElementById('pushStatus');
+  el.innerHTML = '<div class="alert alert-info">Pushing to Datasphere...</div>';
+  try {
+    const res = await apiFetch(`/api/v1/conversions/${state.jobId}/push/datasphere`, { method: 'POST' });
+    el.innerHTML = `<div class="alert alert-info">Datasphere: ${res.created?.length || 0} entities pushed. ${res.failed?.length ? res.failed.length + ' failed.' : ''}</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="alert alert-error">Datasphere push failed: ${e.message}</div>`;
+  }
+}
+
+async function pushToSAC() {
+  if (!state.jobId) return;
+  const el = document.getElementById('pushStatus');
+  el.innerHTML = '<div class="alert alert-info">Pushing to SAC...</div>';
+  try {
+    const res = await apiFetch(`/api/v1/conversions/${state.jobId}/push/sac`, { method: 'POST' });
+    el.innerHTML = `<div class="alert alert-info">SAC: model "${res.model_name}" ${res.status}.</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="alert alert-error">SAC push failed: ${e.message}</div>`;
+  }
+}
+
+// ── Downloads ──────────────────────────────────────────────────────────────────
+function downloadOutput(type) {
+  const r = state.conversionResult;
+  if (!r) return;
+  const dl = (name, content) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content], { type: 'text/plain' }));
+    a.download = name; a.click(); URL.revokeObjectURL(a.href);
+  };
+  if (type === 'datasphere') dl('datasphere_entities.json', JSON.stringify(r.datasphereEntities, null, 2));
+  if (type === 'sac')        dl('sac_model_config.json', JSON.stringify(r.sacModelConfig, null, 2));
+  if (type === 'mapping')    dl('conversion_mapping.csv', toCSV(r.conversionMapping || []));
+  if (type === 'all') {
+    [['datasphere_entities.json', JSON.stringify(r.datasphereEntities, null, 2)],
+     ['sac_model_config.json',    JSON.stringify(r.sacModelConfig, null, 2)],
+     ['conversion_mapping.csv',   toCSV(r.conversionMapping || [])],
+     ['full_result.json',         JSON.stringify(r, null, 2)],
+    ].forEach(([name, content], i) => setTimeout(() => dl(name, content), i * 80));
+  }
+}
+
+function toCSV(mapping) {
+  const h = ['Source Object','Source Type','Target Object','Target Type','Status','Notes'];
+  const rows = mapping.map(m => [
+    m.sourceObject||m.source_object, m.sourceType||m.source_type,
+    m.targetObject||m.target_object, m.targetType||m.target_type,
+    m.status, m.notes
+  ].map(v => `"${(v||'').toString().replace(/"/g,'""')}"`).join(','));
+  return [h.join(','), ...rows].join('\n');
+}
+
+// ── Utilities ──────────────────────────────────────────────────────────────────
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtDate(d) { try { return new Date(d).toLocaleDateString(); } catch { return d||''; } }
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initUser();
+  loadProjects();
+});
+</script>
+</body>
+</html>

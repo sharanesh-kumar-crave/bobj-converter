@@ -1,0 +1,101 @@
+{
+  "xsappname": "bobj-converter",
+  "tenant-mode": "dedicated",
+  "description": "BOBJ → Datasphere & SAC Converter — XSUAA Security Descriptor",
+
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.convert",
+      "description": "Submit BOBJ conversion jobs"
+    },
+    {
+      "name": "$XSAPPNAME.read",
+      "description": "Read conversion results, projects, and jobs"
+    },
+    {
+      "name": "$XSAPPNAME.push",
+      "description": "Push generated entities to Datasphere and SAC"
+    },
+    {
+      "name": "$XSAPPNAME.admin",
+      "description": "Full administrative access — manage all projects and users"
+    }
+  ],
+
+  "attributes": [
+    {
+      "name": "project",
+      "description": "Restrict access to a specific project ID",
+      "valueType": "string"
+    }
+  ],
+
+  "role-templates": [
+    {
+      "name": "Viewer",
+      "description": "Can view conversion jobs and results",
+      "scope-references": ["$XSAPPNAME.read"],
+      "attribute-references": ["project"]
+    },
+    {
+      "name": "Converter",
+      "description": "Can submit conversion jobs and view results",
+      "scope-references": [
+        "$XSAPPNAME.read",
+        "$XSAPPNAME.convert"
+      ],
+      "attribute-references": ["project"]
+    },
+    {
+      "name": "Publisher",
+      "description": "Can convert and push outputs to Datasphere & SAC",
+      "scope-references": [
+        "$XSAPPNAME.read",
+        "$XSAPPNAME.convert",
+        "$XSAPPNAME.push"
+      ]
+    },
+    {
+      "name": "Admin",
+      "description": "Full access including all project management",
+      "scope-references": [
+        "$XSAPPNAME.read",
+        "$XSAPPNAME.convert",
+        "$XSAPPNAME.push",
+        "$XSAPPNAME.admin"
+      ]
+    }
+  ],
+
+  "role-collections": [
+    {
+      "name": "BOBJ Converter - Viewer",
+      "description": "Read-only access to conversion results",
+      "role-template-references": ["$XSAPPNAME.Viewer"]
+    },
+    {
+      "name": "BOBJ Converter - Converter",
+      "description": "Submit and view conversions",
+      "role-template-references": ["$XSAPPNAME.Converter"]
+    },
+    {
+      "name": "BOBJ Converter - Publisher",
+      "description": "Full conversion and publish to Datasphere & SAC",
+      "role-template-references": ["$XSAPPNAME.Publisher"]
+    },
+    {
+      "name": "BOBJ Converter - Admin",
+      "description": "Administrative access",
+      "role-template-references": ["$XSAPPNAME.Admin"]
+    }
+  ],
+
+  "oauth2-configuration": {
+    "token-validity": 3600,
+    "refresh-token-validity": 86400,
+    "redirect-uris": [
+      "https://bobj-converter.<YOUR_CF_DOMAIN>/",
+      "https://bobj-converter.<YOUR_CF_DOMAIN>/callback"
+    ]
+  }
+}

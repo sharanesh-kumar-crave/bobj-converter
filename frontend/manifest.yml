@@ -1,0 +1,15 @@
+---
+applications:
+  - name: bobj-converter-ui
+    path: .
+    buildpack: staticfile_buildpack
+    memory: 64M
+    disk_quota: 128M
+    instances: 1
+    health-check-type: process
+    env:
+      FORCE_HTTPS: true
+    services:
+      - bobj-converter-xsuaa
+    routes:
+      - route: bobj-converter.((CF_DOMAIN))
