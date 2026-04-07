@@ -4,7 +4,10 @@ import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from hdbcli import dbapi
+try:
+    from hdbcli import dbapi
+except ImportError:
+    dbapi = None
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,8 @@ async def init_db(vcap: dict):
     _hana_config = _parse_hana_credentials(vcap)
     logger.info("Connecting to HANA Cloud at %s:%s", _hana_config["host"], _hana_config["port"])
     _pool = []
+    if os.getenv("ENVIRONMENT","local") == "local":
+        return
     for _ in range(POOL_SIZE):
         conn = dbapi.connect(**_hana_config)
         conn.setautocommit(False)
@@ -64,8 +69,16 @@ async def close_db():
 
 
 @asynccontextmanager
-async def get_db() -> AsyncGenerator[dbapi.Connection, None]:
-    """Acquire a HANA connection from the pool (simple round-robin)."""
+async def get_db() -> AsyncGenerator[any, None]:
+    """Acquire a HANA connection — returns mock in local env."""
+    if os.getenv("ENVIRONMENT", "local") == "local":
+        from unittest.mock import MagicMock
+        mock = MagicMock()
+        mock.cursor.return_value.description = [("result",)]
+        mock.cursor.return_value.fetchall.return_value = []
+        mock.cursor.return_value.rowcount = 1
+        yield mock
+        return
     global _pool
     async with _pool_lock:
         conn = _pool.pop(0)
@@ -79,8 +92,7 @@ async def get_db() -> AsyncGenerator[dbapi.Connection, None]:
         async with _pool_lock:
             _pool.append(conn)
 
-
-def execute_query(conn: dbapi.Connection, sql: str, params: tuple = ()) -> list[dict]:
+def execute_query(conn: any, sql: str, params: tuple = ()) -> list[dict]:
     """Execute a SELECT and return rows as dicts."""
     cursor = conn.cursor()
     cursor.execute(sql, params)
@@ -88,7 +100,7 @@ def execute_query(conn: dbapi.Connection, sql: str, params: tuple = ()) -> list[
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def execute_dml(conn: dbapi.Connection, sql: str, params: tuple = ()) -> int:
+def execute_dml(conn: any, sql: str, params: tuple = ()) -> int:
     """Execute INSERT/UPDATE/DELETE and return affected row count."""
     cursor = conn.cursor()
     cursor.execute(sql, params)

@@ -107,6 +107,7 @@ jobs:
           # Set environment variables for Dev
           cf8 set-env ${CF_APP_NAME}-green ENVIRONMENT          dev
           cf8 set-env ${CF_APP_NAME}-green DATASPHERE_BASE_URL  "${{ secrets.DATASPHERE_BASE_URL_DEV }}"
+	  cf8 set-env ${CF_APP_NAME}-green ANTHROPIC_API_KEY    "${{ secrets.ANTHROPIC_API_KEY }}"
           cf8 set-env ${CF_APP_NAME}-green DATASPHERE_SPACE_ID  "${{ secrets.DATASPHERE_SPACE_ID_DEV }}"
           cf8 set-env ${CF_APP_NAME}-green DATASPHERE_TOKEN_URL "${{ secrets.DATASPHERE_TOKEN_URL_DEV }}"
           cf8 set-env ${CF_APP_NAME}-green DATASPHERE_CLIENT_ID "${{ secrets.DATASPHERE_CLIENT_ID_DEV }}"
@@ -118,6 +119,7 @@ jobs:
           cf8 set-env ${CF_APP_NAME}-green AICORE_DEPLOYMENT_ID "${{ secrets.AICORE_DEPLOYMENT_ID_DEV }}"
           cf8 set-env ${CF_APP_NAME}-green BUILD_SHA            "${{ github.sha }}"
           cf8 set-env ${CF_APP_NAME}-green DEPLOYED_AT          "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	  cf8 set-env ${CF_APP_NAME}-green ANTHROPIC_API_KEY "${{ secrets.ANTHROPIC_API_KEY }}"
 
           # Start green
           cf8 start ${CF_APP_NAME}-green

@@ -6,6 +6,6 @@ pydantic-settings==2.4.0
 httpx==0.27.2
 PyJWT==2.9.0
 cryptography==43.0.1
-hdbcli==2.21.28
+hdbcli==2.21.28; sys_platform != "linux"
 python-multipart==0.0.12
 python-dotenv==1.0.1
