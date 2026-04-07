@@ -8,3 +8,8 @@ __pycache__/
 .env
 fix*.py
 *.bak
+__pycache__/
+*.pyc
+.env
+fix*.py
+*.bak
