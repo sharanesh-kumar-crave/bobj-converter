@@ -16,7 +16,7 @@ router = APIRouter()
 @router.post("", response_model=ConversionResult, status_code=202)
 async def start_conversion(
     request: Request,
-    body: ConversionRequest,
+    payload: ConversionRequest,
     background_tasks: BackgroundTasks,
 ):
     """

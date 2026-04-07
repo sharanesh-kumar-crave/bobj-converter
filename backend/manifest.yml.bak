@@ -1,0 +1,33 @@
+---
+applications:
+  - name: bobj-converter-api
+    path: .
+    buildpack: python_buildpack
+    memory: 512M
+    disk_quota: 512M
+    instances: 1
+    health-check-type: http
+    health-check-http-endpoint: /api/health
+    command: gunicorn app.main:app -w 2 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT
+    env:
+      PYTHONPATH: .
+      HANA_POOL_SIZE: "3"
+      LOG_LEVEL: INFO
+      ENVIRONMENT: dev
+      ANTHROPIC_API_KEY:  ""
+      DATASPHERE_BASE_URL: https://cravedatasphere.us10.hcs.cloud.sap
+      DATASPHERE_SPACE_ID: CRAVE_INFOTECH
+      DATASPHERE_TOKEN_URL: https://cravedatasphere.authentication.us10.hana.ondemand.com/oauth/token
+      DATASPHERE_CLIENT_ID: ""
+      DATASPHERE_CLIENT_SECRET: ""
+      SAC_TENANT_URL: https://cravesacp.us10.analytics.cloud.sap
+      SAC_TOKEN_URL: ""
+      SAC_CLIENT_ID: ""
+      SAC_CLIENT_SECRET: ""
+      AICORE_DEPLOYMENT_ID: ""
+      AICORE_RESOURCE_GROUP: default
+    services:
+      - bobj-converter-hana
+      - bobj-converter-xsuaa
+    routes:
+      - route: bobj-converter-api-dev.((CF_DOMAIN))
