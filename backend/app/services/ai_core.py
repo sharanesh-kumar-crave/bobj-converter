@@ -26,8 +26,14 @@ Artifact Name: {artifact_name}
 Content:
 {raw_content}
 
-Analyze this BOBJ artifact and return a JSON response with:
+Analyze this BOBJ artifact IN DETAIL and return a JSON response with:
 {{
+  "analysis": {{
+    "dataSources": [{{"name": "source table/object", "type": "BW ADSO|Master Data|Time Characteristic|Universe Table", "description": "what it provides"}}],
+    "dimensions": [{{"name": "dim", "dataType": "string|integer|decimal|date", "source": "source object"}}],
+    "measures": [{{"name": "measure", "dataType": "decimal|integer", "aggregation": "SUM|AVG|COUNT|MIN|MAX"}}],
+    "calculations": [{{"name": "calc name", "formula": "the actual formula/expression", "critical": true, "description": "what it computes + migration note"}}]
+  }},
   "datasphereEntities": [
     {{
       "name": "entity name",
@@ -74,7 +80,7 @@ Return ONLY valid JSON, no markdown, no explanation."""
             {"role": "system", "content": "You are an SAP BOBJ to Datasphere/SAC migration expert. Always respond with valid JSON only."},
             {"role": "user", "content": prompt}
         ],
-        "max_tokens": 4000,
+        "max_tokens": 6000,
         "temperature": 0.1,
     }
 

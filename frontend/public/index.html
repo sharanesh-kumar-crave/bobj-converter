@@ -1215,10 +1215,13 @@ function renderResult(d) {
   // Build tabs from result keys
   const res = d.datasphere_entities||d.sac_model_config||d.conversion_mapping||d;
   const keys = typeof res==='object' ? Object.keys(res).filter(k=>typeof res[k]==='object'||typeof res[k]==='string') : [];
-  if(keys.length) {
-    document.getElementById('resTabBar').innerHTML = keys.map((k,i)=>
-      `<div class="tbtab ${i===0?'active':''}" onclick="showResTab('${k}',this)">${k}</div>`).join('');
-    showResTabContent(keys[0], res[keys[0]]);
+  const _tabs=[];
+  if(d.analysis) _tabs.push({k:'analysis',label:'📋 Analysis'});
+  keys.forEach(k=>_tabs.push({k,label:k}));
+  if(_tabs.length) {
+    document.getElementById('resTabBar').innerHTML = _tabs.map((t,i)=>
+      `<div class="tbtab ${i===0?'active':''}" onclick="showResTab('${t.k}',this)">${t.label}</div>`).join('');
+    showResTabContent(_tabs[0].k, res[_tabs[0].k]);
   } else {
     document.getElementById('resContent').textContent=JSON.stringify(d,null,2);
   }
@@ -1232,7 +1235,15 @@ function showResTab(key,btn) {
   showResTabContent(key,res[key]);
 }
 function showResTabContent(key,val) {
-  document.getElementById('resContent').textContent=JSON.stringify(val,null,2);
+  const el=document.getElementById('resContent');
+  if(key==='analysis' && _jobResult && _jobResult.analysis){
+    el.style.whiteSpace='normal';
+    el.innerHTML=renderAnalysisHTML(_jobResult.analysis);
+  } else {
+    el.style.whiteSpace='pre-wrap';
+    el.innerHTML='';
+    el.textContent=JSON.stringify(val,null,2);
+  }
 }
 
 function dlResult(fmt) {
@@ -1951,6 +1962,52 @@ const BW_EMBEDDED = {"db_version": "2.00.067.03 (SAP HANA)", "analyzed_at": "202
 // ══════════════════════════════════════════════════════════════════════
 
 // ── Demo conversion (when API is offline) ──
+function buildDemoAnalysis(entities, name){
+  const cols=(entities&&entities[0]&&entities[0].columns)||[];
+  const isM=c=>(c.semanticType||'').toLowerCase()==='measure';
+  const isD=c=>(c.semanticType||'').toLowerCase()==='dimension';
+  const measures=cols.filter(isM), dims=cols.filter(isD);
+  const src=(name||'OBJECT').toUpperCase().replace(/[^A-Z0-9_]/g,'_').slice(0,10);
+  const dataSources=[
+    {name:'/BIC/A'+src+'00', type:'BW ADSO (Advanced DSO)', rows:'~2.4M', description:'Primary transactional source for '+(name||'the object')},
+    {name:'0COMP_CODE_ATTR', type:'Master Data — Attributes', rows:'~1.2K', description:'Company code / organisational master'},
+    {name:'0MATERIAL_ATTR', type:'Master Data — Attributes', rows:'~85K', description:'Material master descriptions & hierarchy'},
+    {name:'0CALDAY', type:'Time Characteristic', rows:'—', description:'Calendar-day granularity for time series'},
+  ];
+  const has=n=>measures.some(m=>(m.name||'').toUpperCase().includes(n));
+  const measuresOut=measures.map(m=>({name:m.name, dataType:m.dataType, aggregation:'SUM'}));
+  const dimsOut=dims.map(d=>({name:d.name, dataType:d.dataType, source:'/BIC/A'+src+'00', description:'Descriptive attribute'}));
+  const calculations=[];
+  if(has('REVENUE')&&has('COST')){
+    calculations.push({name:'Net Margin', formula:'REVENUE - COST', critical:true, description:'Absolute gross profit per line item.'});
+    calculations.push({name:'Margin %', formula:'( REVENUE - COST ) / NULLIF(REVENUE,0) * 100', critical:true, description:'Profitability ratio — headline KPI; model as a calculated measure in Datasphere.'});
+  }
+  if(has('QUANTITY')&&has('REVENUE'))
+    calculations.push({name:'Avg Unit Price', formula:'SUM(REVENUE) / NULLIF(SUM(QUANTITY),0)', critical:false, description:'Average selling price per unit.'});
+  calculations.push({name:'YoY Growth %', formula:'( CURR - PREV ) / NULLIF(PREV,0) * 100', critical:true, description:'Year-over-year growth via time-shift — needs an exception-aggregation calculated measure in Datasphere.'});
+  return { dataSources, dimensions:dimsOut, measures:measuresOut, calculations };
+}
+
+function renderAnalysisHTML(a){
+  const esc=s=>(s==null?'':(''+s)).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+  const sec=(icon,title,n,body)=>`<div style="margin-bottom:22px"><div style="font-size:14px;font-weight:800;color:var(--text);margin-bottom:10px">${icon} ${title} <span style="color:var(--gray);font-weight:600">(${n})</span></div>${body}</div>`;
+  const table=(head,rows)=>`<div style="overflow-x:auto"><table class="btbl" style="width:100%"><thead><tr>${head.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows||''}</tbody></table></div>`;
+  const dsRows=(a.dataSources||[]).map(s=>`<tr><td style="font-family:var(--mono);font-size:12px">${esc(s.name)}</td><td>${esc(s.type)}</td><td style="color:var(--gray2)">${esc(s.description)}</td></tr>`).join('');
+  const dimRows=(a.dimensions||[]).map(d=>`<tr><td style="font-weight:600">${esc(d.name)}</td><td><span class="tchip">${esc(d.dataType)}</span></td><td style="font-family:var(--mono);font-size:11px;color:var(--gray2)">${esc(d.source)}</td></tr>`).join('');
+  const meaRows=(a.measures||[]).map(m=>`<tr><td style="font-weight:600">${esc(m.name)}</td><td><span style="font-size:11px;font-weight:700;background:rgba(34,197,94,.12);color:var(--green);padding:2px 8px;border-radius:10px">${esc(m.aggregation||'SUM')}</span></td><td><span class="tchip">${esc(m.dataType)}</span></td></tr>`).join('');
+  const calc=(a.calculations||[]).map(c=>`<div style="background:var(--bg);border:1px solid var(--border);border-left:3px solid ${c.critical?'var(--red)':'var(--blue)'};border-radius:8px;padding:12px 14px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px"><span style="font-weight:700;color:var(--text)">${esc(c.name)}</span>${c.critical?'<span style="font-size:10px;font-weight:700;background:rgba(239,68,68,.12);color:var(--red);padding:2px 7px;border-radius:8px;letter-spacing:.04em">CRITICAL</span>':''}</div>
+      <div style="font-family:var(--mono);font-size:12px;background:#f6f8fa;border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:#1f2328;margin-bottom:7px;white-space:pre-wrap">${esc(c.formula)}</div>
+      <div style="font-size:12px;color:var(--gray2);line-height:1.5">${esc(c.description)}</div></div>`).join('');
+  return `<div style="font-family:var(--font);white-space:normal;line-height:1.5">
+    ${sec('🗄','Data Sources',(a.dataSources||[]).length,table(['Source Object','Type','Description'],dsRows))}
+    ${sec('📐','Dimensions',(a.dimensions||[]).length,table(['Name','Data Type','Source'],dimRows))}
+    ${sec('📊','Measures',(a.measures||[]).length,table(['Name','Aggregation','Data Type'],meaRows))}
+    ${sec('🧮','Critical Calculations',(a.calculations||[]).length,calc)}
+    <div style="font-size:12px;color:var(--gray2);border-top:1px solid var(--border);padding-top:12px;margin-top:4px">➜ Use <strong style="color:var(--orange)">⤓ Export to Datasphere (CSN)</strong> above to generate the deploy-ready CSN for these entities.</div>
+  </div>`;
+}
+
 function buildDemoResult(content, target) {
   const name = document.getElementById('artName').value || 'Converted_Object';
   const jid = 'demo-' + Date.now();
@@ -1980,6 +2037,7 @@ function buildDemoResult(content, target) {
     entities: ds.entities.length + sac.pages.length,
     elapsed: 2, object_type: 'universe',
     datasphere_entities: ds, sac_model_config: sac,
+    analysis: buildDemoAnalysis(ds.entities, name),
     conversion_mapping: { source: 'BOBJ Universe', target: target, mapped_objects: ds.entities.length }
   };
 }
