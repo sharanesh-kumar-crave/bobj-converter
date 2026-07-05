@@ -15,7 +15,7 @@
   --text:#1e293b;--gray:#64748b;--gray2:#475569;
   --radius:10px;--font:'Segoe UI',system-ui,sans-serif;--mono:'Cascadia Code','Consolas',monospace;
 }
-body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;padding-left:236px}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;padding-left:236px;padding-top:52px}
 
 /* ── NAV ── */
 nav{
@@ -45,9 +45,14 @@ nav{
 .ntab .nbadge{font-size:10px;padding:1px 5px;border-radius:8px;background:var(--orange);color:#fff;font-weight:700}
 .side-soon{padding:9px 11px;font-size:13px;font-weight:500;color:var(--gray2);opacity:.5;font-style:italic}
 .side-foot{border-top:1px solid var(--border);padding:11px 12px;display:flex;flex-direction:column;gap:9px;align-items:flex-start}
+#appTopbar{position:fixed;top:0;left:236px;right:0;height:52px;z-index:150;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:flex-end;gap:14px;padding:0 22px}
+.topbar-crave{height:30px;width:auto;object-fit:contain}
+.topbar-sep{width:1px;height:26px;background:var(--border);flex-shrink:0}
+.lp-crave{position:absolute;top:20px;right:26px;width:96px;height:auto;z-index:3;opacity:.96}
 .nav-right{margin-left:auto;display:flex;align-items:center;gap:10px}
 @media(max-width:860px){
-  body{padding-left:0}
+  body{padding-left:0;padding-top:0}
+  #appTopbar{position:static;left:0;height:auto;justify-content:flex-start;flex-wrap:wrap;gap:10px;padding:8px 14px}
   nav{position:static;width:auto;flex-direction:row;flex-wrap:wrap;border-right:none;border-bottom:1px solid var(--border);align-items:center}
   .side-brand{border-bottom:none;padding:10px 14px}
   .side-scroll{display:flex;flex-direction:row;overflow-x:auto;flex:1;padding:6px 8px;gap:4px;align-items:center}
@@ -410,6 +415,7 @@ table.btbl tbody tr:hover td{background:rgba(59,130,246,.04)}
 
 <!-- ═══════════════ LOGIN SCREEN ═══════════════ -->
 <div id="loginScreen">
+  <img src="crave-logo.png" alt="Crave Infotech" class="lp-crave">
   <!-- LEFT: value proposition -->
   <div class="lp-left">
     <div class="lp-eyebrow">AI-Powered SAP BI Modernization</div>
@@ -534,15 +540,17 @@ table.btbl tbody tr:hover td{background:rgba(59,130,246,.04)}
       <div class="side-soon">&#128679; Coming soon</div>
     </div>
   </div>
-  <div class="side-foot">
+</nav>
+<div id="appTopbar">
     <div class="user-chip" id="userChip">
       <div class="uavatar" id="userAvatar">?</div>
       <div><div class="uname" id="userName">User</div><div class="urole" id="userRole">Administrator</div></div>
     </div>
     <button class="logout-btn" id="logoutBtn" style="display:none" onclick="lpLogout()">Sign Out</button>
     <span id="hApiStatus" class="hbadge">API&#8230;</span>
-  </div>
-</nav>
+    <span class="topbar-sep"></span>
+    <img src="crave-logo.png" alt="Crave Infotech" class="topbar-crave">
+</div>
 <div id="toast"></div>
 
 <!-- ═══════════════════ PAGE: CONVERTER ═══════════════════ -->
