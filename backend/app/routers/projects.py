@@ -12,7 +12,7 @@ router = APIRouter()
 
 @router.get("", response_model=list[Project])
 async def list_projects(request: Request):
-    user_id = request.state.user.get("sub", "unknown")
+    user_id = "anonymous"
     async with get_db() as conn:
         rows = execute_query(
             conn,
@@ -33,7 +33,7 @@ async def list_projects(request: Request):
 
 @router.post("", response_model=Project, status_code=201)
 async def create_project(request: Request, body: ProjectCreate):
-    user_id = request.state.user.get("sub", "unknown")
+    user_id = "anonymous"
     project_id = uuid.uuid4()
     async with get_db() as conn:
         execute_dml(
@@ -60,7 +60,7 @@ async def create_project(request: Request, body: ProjectCreate):
 
 @router.delete("/{project_id}", status_code=204)
 async def delete_project(project_id: str, request: Request):
-    user_id = request.state.user.get("sub", "unknown")
+    user_id = "anonymous"
     async with get_db() as conn:
         rows = execute_query(
             conn, "SELECT OWNER_USER_ID FROM BOBJ_PROJECTS WHERE ID = ?", (project_id,)

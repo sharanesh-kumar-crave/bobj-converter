@@ -28,7 +28,7 @@ Content:
 
 Analyze this BOBJ artifact and return a JSON response with:
 {{
-  "datasphere_entities": [
+  "datasphereEntities": [
     {{
       "name": "entity name",
       "type": "dimension|fact|analytic_model",
@@ -36,7 +36,7 @@ Analyze this BOBJ artifact and return a JSON response with:
       "description": "description"
     }}
   ],
-  "sac_model_config": {{
+  "sacModelConfig": {{
     "model_name": "model name",
     "model_type": "planning|analytic",
     "description": "description",
@@ -44,11 +44,11 @@ Analyze this BOBJ artifact and return a JSON response with:
     "measures": [{{"name": "measure", "aggregation": "SUM|AVG|COUNT"}}],
     "data_connections": []
   }},
-  "conversion_mapping": [
+  "conversionMapping": [
     {{"source": "source object", "target": "target object", "status": "converted|manual_review|not_supported", "notes": "notes"}}
   ],
   "summary": {{
-    "total_objects": 0,
+    "totalObjects": 0,
     "converted": 0,
     "manual_review": 0,
     "not_supported": 0,
@@ -84,7 +84,6 @@ Return ONLY valid JSON, no markdown, no explanation."""
             response.raise_for_status()
             data = response.json()
             content = data["choices"][0]["message"]["content"].strip()
-            # Strip markdown if present
             if content.startswith("```"):
                 content = content.split("```")[1]
                 if content.startswith("json"):
@@ -93,3 +92,12 @@ Return ONLY valid JSON, no markdown, no explanation."""
     except Exception as e:
         logger.error(f"Azure OpenAI error: {e}")
         raise
+
+
+async def run_conversion(input_type: str, raw_content: str) -> dict[str, Any]:
+    """Alias used by conversion router — delegates to convert_bobj_artifact."""
+    return await convert_bobj_artifact(
+        input_type=input_type,
+        artifact_name="artifact",
+        raw_content=raw_content,
+    )
