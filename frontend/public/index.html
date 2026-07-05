@@ -548,7 +548,7 @@ table.btbl tbody tr:hover td{background:rgba(59,130,246,.04)}
         <div style="display:flex;gap:7px;flex-wrap:wrap">
           <button class="btn btn-ghost btn-sm" onclick="dlResult('json')">⬇ JSON</button>
           <button class="btn btn-ghost btn-sm" onclick="dlResult('txt')">⬇ TXT</button>
-          <button class="btn btn-blue btn-sm" id="pushDsBtn" onclick="pushTo('datasphere')">↑ Push to Datasphere</button>
+          <button class="btn btn-blue btn-sm" id="pushDsBtn" onclick="exportDatasphereCSN()">⤓ Export to Datasphere (CSN)</button>
           <button class="btn btn-dark btn-sm" id="pushSacBtn" onclick="pushTo('sac')">↑ Push to SAC</button>
         </div>
       </div>
@@ -1152,22 +1152,96 @@ function dlResult(fmt) {
   a.download=`conversion-${_jobId||'result'}.${fmt}`;a.click();
 }
 
+// ── Datasphere CSN export (the real, supported way to land objects in Datasphere) ──
+function _csnType(dt){
+  const t=(dt||'').toString().toLowerCase();
+  if(t.includes('decimal')||t.includes('numeric')||t.includes('number')) return {type:'cds.Decimal',precision:23,scale:2};
+  if(t.includes('double')||t.includes('float')||t.includes('real')) return {type:'cds.Double'};
+  if(t.includes('int')) return {type:'cds.Integer'};
+  if(t.includes('timestamp')||(t.includes('date')&&t.includes('time'))) return {type:'cds.Timestamp'};
+  if(t.includes('date')) return {type:'cds.Date'};
+  if(t.includes('time')) return {type:'cds.Time'};
+  if(t.includes('bool')) return {type:'cds.Boolean'};
+  return {type:'cds.String',length:255};
+}
+function buildDatasphereCSN(ents){
+  const definitions={};
+  (ents||[]).forEach(e=>{
+    const tech=((e.name||e.technicalName||'OBJECT')+'').replace(/[^A-Za-z0-9_]/g,'_').toUpperCase();
+    const elements={};
+    (e.columns||e.elements||[]).forEach(c=>{
+      const nm=((c.name||'COL')+'').replace(/[^A-Za-z0-9_]/g,'_').toUpperCase();
+      const m=_csnType(c.dataType||c.type);
+      const el={type:m.type};
+      if(m.length) el.length=m.length;
+      if(m.precision){ el.precision=m.precision; el.scale=m.scale; }
+      if(c.label||c.businessName) el['@EndUserText.label']=c.label||c.businessName;
+      if(((c.semanticType||'')+'').toLowerCase().includes('measure')) el['@Aggregation.default']={'#':'SUM'};
+      elements[nm]=el;
+    });
+    definitions[tech]={
+      kind:'entity',
+      '@EndUserText.label': e.businessName||e.label||tech,
+      elements
+    };
+  });
+  return {'$version':'2.0', definitions};
+}
+function exportDatasphereCSN(){
+  const ents=(_jobResult && _jobResult.datasphere_entities && _jobResult.datasphere_entities.entities) || [];
+  if(!ents.length){ toast('No Datasphere entities to export — run a conversion first','err'); return; }
+  const csn=buildDatasphereCSN(ents);
+  const fname=`datasphere-import-${(_jobId||'objects').replace(/[^A-Za-z0-9_-]/g,'')}.json`;
+  const blob=new Blob([JSON.stringify(csn,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  const n=Object.keys(csn.definitions).length;
+  addLog('OK',`Datasphere CSN exported — ${n} object(s) → ${fname}`);
+  toast(`Datasphere CSN downloaded (${n} object${n>1?'s':''})`,'ok');
+  showCsnImportModal(fname, n);
+}
+function showCsnImportModal(fname, n){
+  const ex=document.getElementById('csnImportModal'); if(ex) ex.remove();
+  const m=document.createElement('div');
+  m.id='csnImportModal';
+  m.style.cssText='position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);animation:lpFade .3s ease;';
+  m.innerHTML=`
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:32px;max-width:520px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,0.18);">
+      <div style="font-size:40px;text-align:center;margin-bottom:10px;">⤓</div>
+      <h2 style="color:#1e293b;margin:0 0 6px;font-size:20px;text-align:center;">CSN ready to import into Datasphere</h2>
+      <p style="color:#475569;font-size:13px;text-align:center;margin:0 0 18px;">Downloaded <strong style="color:#1e293b;">${fname}</strong> · ${n} object${n>1?'s':''}. Import it with SAP's supported flow:</p>
+      <ol style="color:#334155;font-size:13.5px;line-height:1.9;margin:0 0 20px;padding-left:20px;">
+        <li>Open <strong>SAP Datasphere → Data Builder</strong> in space <strong>CRAVE_INFOTECH</strong></li>
+        <li>Click <strong>Import → Import Objects from CSN/JSON File</strong></li>
+        <li>Select the downloaded file, choose the objects, click <strong>Import</strong></li>
+        <li>Open each imported object and click <strong>Deploy</strong></li>
+      </ol>
+      <div style="display:flex;gap:10px;">
+        <a href="https://cravedatasphere.us10.hcs.cloud.sap/dwaas-ui/" target="_blank"
+           style="flex:1;text-align:center;background:#f97316;color:#fff;padding:12px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">Open SAP Datasphere →</a>
+        <button onclick="document.getElementById('csnImportModal').remove()"
+           style="background:transparent;border:1px solid #cbd5e1;color:#475569;padding:12px 20px;border-radius:8px;cursor:pointer;font-size:14px;">Close</button>
+      </div>
+    </div>`;
+  m.addEventListener('click',ev=>{ if(ev.target===m) m.remove(); });
+  document.body.appendChild(m);
+}
+
 async function pushTo(target) {
   if(!_jobId) return;
   const id=target==='datasphere'?'pushDsBtn':'pushSacBtn';
   const btn=document.getElementById(id);
+  const label = target==='datasphere' ? 'SAP Datasphere' : 'SAP Analytics Cloud';
+  const restore=()=>{ btn.disabled=false; btn.textContent=target==='datasphere'?'↑ Push to Datasphere':'↑ Push to SAC'; };
   btn.disabled=true; btn.textContent='⏳ Pushing…';
 
+  // Demo jobs are simulated in the browser and never reach the backend — be honest about it.
   if(_jobId.startsWith('demo-')) {
-    await new Promise(r=>setTimeout(r,1800));
-    btn.textContent='✓ Pushed!';
-    const demoUrl = target==='datasphere'
-      ? 'https://cravedatasphere.us10.hcs.cloud.sap/dwaas-ui/index.html#/space/CRAVE_INFOTECH'
-      : 'https://cravesacp.us10.analytics.cloud.sap';
-    const demoLabel = target==='datasphere' ? 'SAP Datasphere' : 'SAP Analytics Cloud';
-    toast(`Pushed to ${demoLabel}! (Demo)`,'ok',6000);
-    showPushSuccessModal(demoLabel, demoUrl);
-    addLog('INFO',`Demo push to ${target} complete`);
+    await new Promise(r=>setTimeout(r,700));
+    btn.textContent='◑ Simulated';
+    toast(`Demo mode — simulated only. Nothing was actually sent to ${label}. Run a real (non-demo) conversion to push for real.`,'info');
+    addLog('WARN',`Demo push to ${target} is simulated — no data sent to ${label}`);
+    setTimeout(restore,2600);
     return;
   }
 
@@ -1177,25 +1251,51 @@ async function pushTo(target) {
     let d={};
     try { d=JSON.parse(txt); } catch(_){}
     if(!r.ok) throw new Error(d.detail||r.statusText||'Push failed');
-    btn.textContent='✓ Pushed!';
-    // Build direct object URL from push response or job result
-    let objectName = '';
-    if(d && d.object_name) objectName = d.object_name;
-    else if(_jobResult && _jobResult.datasphere_entities && _jobResult.datasphere_entities.entities && _jobResult.datasphere_entities.entities[0]) {
-      objectName = _jobResult.datasphere_entities.entities[0].name;
+
+    // The endpoint returns HTTP 200 even when the target API rejected everything,
+    // so inspect the actual result before claiming success.
+    if(d.skipped){
+      btn.textContent='⚠ Not configured';
+      toast(`${label} push skipped: ${d.reason||'integration not configured'}.`,'err');
+      addLog('WARN',`${label} push skipped: ${d.reason||''}`);
+      setTimeout(restore,2600);
+      return;
     }
-    const spaceId = 'CRAVE_INFOTECH';
-    const dsUrl = target==='datasphere'
-      ? objectName
-        ? `https://cravedatasphere.us10.hcs.cloud.sap/dwaas-ui/index.html#/space/${spaceId}/view/${encodeURIComponent(objectName)}`
-        : `https://cravedatasphere.us10.hcs.cloud.sap/dwaas-ui/index.html#/space/${spaceId}`
-      : `https://cravesacp.us10.analytics.cloud.sap`;
-    const label = target==='datasphere' ? 'SAP Datasphere' : 'SAP Analytics Cloud';
-    showPushSuccessModal(label, dsUrl, objectName);
-    addLog('INFO',`Pushed job ${_jobId} to ${target} — ${dsUrl}`);
+    const createdArr = Array.isArray(d.created)?d.created:[];
+    const failedArr  = Array.isArray(d.failed)?d.failed:[];
+    const createdCount = target==='datasphere' ? createdArr.length
+      : ((d.status==='ok'||d.status==='created'||d.status==='success')?1:0);
+    const failedCount  = target==='datasphere' ? failedArr.length
+      : ((d.status==='failed'||d.error)?1:0);
+
+    if(createdCount>0 && failedCount===0){
+      btn.textContent='✓ Pushed!';
+      const objectName = (d && d.object_name) ? d.object_name
+        : (createdArr[0] || (_jobResult && _jobResult.datasphere_entities && _jobResult.datasphere_entities.entities && _jobResult.datasphere_entities.entities[0] && _jobResult.datasphere_entities.entities[0].name) || '');
+      const spaceId='CRAVE_INFOTECH';
+      const dsUrl = target==='datasphere'
+        ? (objectName
+            ? `https://cravedatasphere.us10.hcs.cloud.sap/dwaas-ui/index.html#/space/${spaceId}/view/${encodeURIComponent(objectName)}`
+            : `https://cravedatasphere.us10.hcs.cloud.sap/dwaas-ui/index.html#/space/${spaceId}`)
+        : `https://cravesacp.us10.analytics.cloud.sap`;
+      showPushSuccessModal(label, dsUrl, objectName);
+      addLog('INFO',`Pushed job ${_jobId} to ${target} — ${createdCount} object(s) created`);
+      return;
+    }
+
+    // Nothing (or only partially) created — surface the real error instead of a fake success.
+    const firstErr = (failedArr[0] && failedArr[0].error) || d.error || 'target API rejected the request';
+    if(createdCount>0){
+      btn.textContent='⚠ Partial';
+      toast(`${label}: ${createdCount} created, ${failedCount} failed. ${firstErr}`,'err');
+    } else {
+      btn.textContent='✗ Failed';
+      toast(`${label} push failed — nothing created. ${firstErr}`,'err');
+    }
+    addLog('ERROR',`${label} push failed (created=${createdCount}, failed=${failedCount}): ${firstErr}`);
+    setTimeout(restore,3200);
   } catch(e) {
-    btn.disabled=false;
-    btn.textContent=target==='datasphere'?'↑ Push to Datasphere':'↑ Push to SAC';
+    restore();
     toast('Push failed: '+e.message,'err');
     addLog('ERROR','Push failed: '+e.message);
   }
