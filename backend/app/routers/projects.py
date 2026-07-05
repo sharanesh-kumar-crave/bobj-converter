@@ -17,13 +17,11 @@ async def list_projects(request: Request):
         rows = execute_query(
             conn,
             """
-            SELECT P.*, COUNT(J.ID) AS JOB_COUNT
+            SELECT P.*,
+                   (SELECT COUNT(*) FROM BOBJ_CONVERSION_JOBS J
+                    WHERE J.PROJECT_ID = P.ID) AS JOB_COUNT
             FROM BOBJ_PROJECTS P
-            LEFT JOIN BOBJ_CONVERSION_JOBS J ON J.PROJECT_ID = P.ID
             WHERE P.OWNER_USER_ID = ?
-            GROUP BY P.ID, P.NAME, P.DESCRIPTION, P.BOBJ_SYSTEM_NAME,
-                     P.DATASPHERE_SPACE_ID, P.SAC_TENANT_URL,
-                     P.OWNER_USER_ID, P.CREATED_AT, P.UPDATED_AT
             ORDER BY P.UPDATED_AT DESC
             """,
             (user_id,),
