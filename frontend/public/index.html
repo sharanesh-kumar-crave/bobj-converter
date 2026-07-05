@@ -1217,6 +1217,7 @@ function renderResult(d) {
   const keys = typeof res==='object' ? Object.keys(res).filter(k=>typeof res[k]==='object'||typeof res[k]==='string') : [];
   const _tabs=[];
   if(d.analysis) _tabs.push({k:'analysis',label:'📋 Analysis'});
+  if(d.analysis||d.datasphere_entities) _tabs.push({k:'lineage',label:'🔀 Data Lineage'});
   keys.forEach(k=>_tabs.push({k,label:k}));
   if(_tabs.length) {
     document.getElementById('resTabBar').innerHTML = _tabs.map((t,i)=>
@@ -1236,7 +1237,10 @@ function showResTab(key,btn) {
 }
 function showResTabContent(key,val) {
   const el=document.getElementById('resContent');
-  if(key==='analysis' && _jobResult && _jobResult.analysis){
+  if(key==='lineage' && _jobResult){
+    el.style.whiteSpace='normal';
+    el.innerHTML=renderLineageHTML(_jobResult);
+  } else if(key==='analysis' && _jobResult && _jobResult.analysis){
     el.style.whiteSpace='normal';
     el.innerHTML=renderAnalysisHTML(_jobResult.analysis);
   } else {
@@ -2006,6 +2010,49 @@ function renderAnalysisHTML(a){
     ${sec('🧮','Critical Calculations',(a.calculations||[]).length,calc)}
     <div style="font-size:12px;color:var(--gray2);border-top:1px solid var(--border);padding-top:12px;margin-top:4px">➜ Use <strong style="color:var(--orange)">⤓ Export to Datasphere (CSN)</strong> above to generate the deploy-ready CSN for these entities.</div>
   </div>`;
+}
+
+function renderLineageHTML(d){
+  const esc=s=>(s==null?'':(''+s)).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+  const a=d.analysis||{};
+  const ents=(d.datasphere_entities&&d.datasphere_entities.entities)||[];
+  const sources=(a.dataSources||[]).slice(0,6);
+  if(!sources.length) sources.push({name:'Source Object',type:'Remote Table'});
+  const view=ents.find(e=>/view/i.test(e.type||''))||ents[0]||{name:'Target_View'};
+  const model=ents.find(e=>/model|analyt/i.test(e.type||''))||ents[1]||null;
+  const bw=210,bh=52,gapY=20,srcTop=34,colX=[16,278,540,802];
+  const H=srcTop+sources.length*(bh+gapY)-gapY+18;
+  const midY=srcTop+(sources.length*(bh+gapY)-gapY)/2-bh/2;
+  const node=(x,y,icon,title,sub,accent)=>{
+    const t=esc(title),s=esc(sub||'');
+    return `<g>
+      <rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="9" fill="#ffffff" stroke="#e2e8f0"/>
+      <rect x="${x}" y="${y}" width="4" height="${bh}" rx="2" fill="${accent}"/>
+      <text x="${x+16}" y="${y+22}" font-size="15">${icon}</text>
+      <text x="${x+38}" y="${y+21}" font-size="12" font-weight="700" fill="#1e293b">${t.length>25?t.slice(0,24)+'…':t}</text>
+      <text x="${x+38}" y="${y+38}" font-size="10" font-family="monospace" fill="#64748b">${s.length>28?s.slice(0,27)+'…':s}</text>
+      <circle cx="${x+bw-15}" cy="${y+bh/2}" r="7" fill="#22c55e"/><text x="${x+bw-15}" y="${y+bh/2+3.5}" font-size="9" fill="#fff" text-anchor="middle">✓</text>
+    </g>`;
+  };
+  const arrow=(x1,y1,x2,y2)=>{const mx=(x1+x2)/2;return `<path d="M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#arr)"/>`;};
+  const hdr=(x,txt)=>`<text x="${x}" y="20" font-size="10" font-weight="700" letter-spacing="0.5" fill="#94a3b8">${txt}</text>`;
+  let nodes='',arrows='',srcY=[];
+  sources.forEach((s,i)=>{const y=srcTop+i*(bh+gapY);srcY.push(y);nodes+=node(colX[0],y,'🗄',s.name,s.type,'#3b82f6');});
+  const dfName=(d.datasphere_entities&&d.datasphere_entities.dataflows&&d.datasphere_entities.dataflows[0]&&d.datasphere_entities.dataflows[0].name)||'Ingestion Flow';
+  nodes+=node(colX[1],midY,'🔀','Data Flow',dfName,'#f97316');
+  nodes+=node(colX[2],midY,'🧊',view.name,'Graphical View','#22c55e');
+  if(model) nodes+=node(colX[3],midY,'📊',model.name,'Analytical Model','#a855f7');
+  srcY.forEach(y=>{arrows+=arrow(colX[0]+bw,y+bh/2,colX[1],midY+bh/2);});
+  arrows+=arrow(colX[1]+bw,midY+bh/2,colX[2],midY+bh/2);
+  if(model) arrows+=arrow(colX[2]+bw,midY+bh/2,colX[3],midY+bh/2);
+  const W=(model?colX[3]:colX[2])+bw+16;
+  const headers=hdr(colX[0],'SOURCES')+hdr(colX[1],'TRANSFORM')+hdr(colX[2],'TARGET VIEW')+(model?hdr(colX[3],'ANALYTICS'):'');
+  return `<div style="white-space:normal">
+    <div style="font-size:13px;color:var(--gray2);margin-bottom:10px">End-to-end data lineage — source objects flow through the ingestion Data Flow into the target Datasphere view${model?' and analytical model':''}.</div>
+    <div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" width="${W}" style="max-width:100%;min-width:${Math.min(W,720)}px">
+      <defs><marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#94a3b8"/></marker></defs>
+      ${headers}${arrows}${nodes}
+    </svg></div></div>`;
 }
 
 function buildDemoResult(content, target) {
