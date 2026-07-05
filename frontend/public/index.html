@@ -1100,22 +1100,23 @@ function switchInput(idx, btn) {
 // ══════════════════════════════════════════════════════════════════════
 // CONVERTER
 // ══════════════════════════════════════════════════════════════════════
-let _cvFile=null, _jobId=null, _jobResult=null;
+let _cvFile=null, _cvFileName='', _jobId=null, _jobResult=null;
 
 function handleCvFile(input) {
   const f=input.files[0]; if(!f) return;
   const reader=new FileReader();
   reader.onload=e=>{
     _cvFile=e.target.result;
+    _cvFileName=f.name;
     document.getElementById('cvFileName').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';
     document.getElementById('cvFileChip').style.display='flex';
     document.getElementById('cvDropZone').style.display='none';
     addLog('INFO',`File loaded: ${f.name}`);
   };
-  reader.readAsDataURL(f);
+  reader.readAsText(f);
 }
 function clearCvFile() {
-  _cvFile=null;
+  _cvFile=null; _cvFileName='';
   document.getElementById('cvFileChip').style.display='none';
   document.getElementById('cvDropZone').style.display='block';
   document.getElementById('cvFile').value='';
@@ -2017,29 +2018,66 @@ const BW_EMBEDDED = {"db_version": "2.00.067.03 (SAP HANA)", "analyzed_at": "202
 // ══════════════════════════════════════════════════════════════════════
 
 // ── Demo conversion (when API is offline) ──
-function buildDemoAnalysis(entities, name){
-  const cols=(entities&&entities[0]&&entities[0].columns)||[];
-  const isM=c=>(c.semanticType||'').toLowerCase()==='measure';
-  const isD=c=>(c.semanticType||'').toLowerCase()==='dimension';
-  const measures=cols.filter(isM), dims=cols.filter(isD);
-  const src=(name||'OBJECT').toUpperCase().replace(/[^A-Z0-9_]/g,'_').slice(0,10);
-  const dataSources=[
-    {name:'/BIC/A'+src+'00', type:'BW ADSO (Advanced DSO)', rows:'~2.4M', description:'Primary transactional source for '+(name||'the object')},
-    {name:'0COMP_CODE_ATTR', type:'Master Data — Attributes', rows:'~1.2K', description:'Company code / organisational master'},
-    {name:'0MATERIAL_ATTR', type:'Master Data — Attributes', rows:'~85K', description:'Material master descriptions & hierarchy'},
-    {name:'0CALDAY', type:'Time Characteristic', rows:'—', description:'Calendar-day granularity for time series'},
-  ];
-  const has=n=>measures.some(m=>(m.name||'').toUpperCase().includes(n));
-  const measuresOut=measures.map(m=>({name:m.name, dataType:m.dataType, aggregation:'SUM'}));
-  const dimsOut=dims.map(d=>({name:d.name, dataType:d.dataType, source:'/BIC/A'+src+'00', description:'Descriptive attribute'}));
-  const calculations=[];
-  if(has('REVENUE')&&has('COST')){
-    calculations.push({name:'Net Margin', formula:'REVENUE - COST', critical:true, description:'Absolute gross profit per line item.'});
-    calculations.push({name:'Margin %', formula:'( REVENUE - COST ) / NULLIF(REVENUE,0) * 100', critical:true, description:'Profitability ratio — headline KPI; model as a calculated measure in Datasphere.'});
+function _mapType(t){
+  t=(t||'').toString().toLowerCase();
+  if(/dec|numeric|number|float|double|money|amount|price|cost|revenue/.test(t)) return 'Decimal';
+  if(/\bint|count|qty|quantity/.test(t)) return 'Integer';
+  if(/date|time|timestamp/.test(t)) return 'Date';
+  if(/bool/.test(t)) return 'Boolean';
+  return 'String';
+}
+function parseArtifact(raw){
+  raw=(raw||'').toString();
+  if(/^data:/.test(raw)){ try{ raw=decodeURIComponent(escape(atob(raw.split(',')[1]||''))); }catch(_){ try{ raw=atob(raw.split(',')[1]||''); }catch(__){} } }
+  const dims=[], measures=[], sources=new Set(), calcs=[];
+  const attr=(tag,a)=>{ const m=tag.match(new RegExp(a+'\\s*=\\s*"([^"]*)"','i')); return m?m[1]:''; };
+  const addSrc=expr=>{ (String(expr).match(/[A-Za-z_][A-Za-z0-9_]{2,}\s*\.\s*[A-Za-z0-9_]+/g)||[]).forEach(x=>{const t=x.split('.')[0].trim(); if(t&&!/^(sum|avg|count|min|max)$/i.test(t)) sources.add(t.toUpperCase());}); };
+  let m;
+  const dimRe=/<(?:Dimension|Attribute)\b[^>]*>/gi;
+  while((m=dimRe.exec(raw))){ const t=m[0]; const nm=attr(t,'name'); if(!nm) continue;
+    const expr=attr(t,'expression'); dims.push({name:nm,dataType:_mapType(attr(t,'dataType')||attr(t,'type')),expression:expr}); addSrc(expr); }
+  const meaRe=/<Measure\b[^>]*>/gi;
+  while((m=meaRe.exec(raw))){ const t=m[0]; const nm=attr(t,'name'); if(!nm) continue;
+    const expr=attr(t,'expression');
+    const agg=(attr(t,'aggregation')||attr(t,'aggregate')||((/\b(sum|avg|count|min|max)\s*\(/i.exec(expr)||[])[1])||'SUM').toUpperCase();
+    measures.push({name:nm,dataType:_mapType(attr(t,'dataType')||attr(t,'type')||'decimal'),aggregation:agg,expression:expr}); addSrc(expr);
+    const core=String(expr).replace(/\b(sum|avg|count|min|max)\s*\(/gi,'').replace(/\)/g,'');
+    if(/[-+*/]/.test(core) && /[A-Za-z_]\w*\s*\.\s*[A-Za-z_]/.test(expr))
+      calcs.push({name:nm,formula:expr,critical:true,description:'Calculated measure defined in the universe expression.'});
   }
-  if(has('QUANTITY')&&has('REVENUE'))
-    calculations.push({name:'Avg Unit Price', formula:'SUM(REVENUE) / NULLIF(SUM(QUANTITY),0)', critical:false, description:'Average selling price per unit.'});
-  calculations.push({name:'YoY Growth %', formula:'( CURR - PREV ) / NULLIF(PREV,0) * 100', critical:true, description:'Year-over-year growth via time-shift — needs an exception-aggregation calculated measure in Datasphere.'});
+  (raw.match(/<Table\b[^>]*name\s*=\s*"([^"]+)"/gi)||[]).forEach(x=>{const nm=(x.match(/name\s*=\s*"([^"]+)"/i)||[])[1]; if(nm) sources.add(nm.toUpperCase());});
+  (raw.match(/\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)/gi)||[]).forEach(x=>{const nm=x.split(/\s+/)[1]; if(nm) sources.add(nm.toUpperCase());});
+  return {dims,measures,sources:[...sources],calcs};
+}
+
+function buildDemoAnalysis(entities, name, parsed){
+  const cols=(entities&&entities[0]&&entities[0].columns)||[];
+  const measures=cols.filter(c=>(c.semanticType||'').toLowerCase()==='measure');
+  const dims=cols.filter(c=>(c.semanticType||'').toLowerCase()==='dimension');
+  const src=(name||'OBJECT').toUpperCase().replace(/[^A-Z0-9_]/g,'_').slice(0,10);
+  let dataSources;
+  if(parsed && parsed.sources && parsed.sources.length){
+    dataSources = parsed.sources.slice(0,8).map(s=>({
+      name:s,
+      type: /fact|trans|sales|order|item|line|movement/i.test(s)?'Fact / Transaction Table' : /dim|mast|attr|prod|cust|vendor|material|partner/i.test(s)?'Dimension / Master Data' : /date|time|cal|period/i.test(s)?'Time Dimension':'Source Table',
+      description:'Referenced by the universe object expressions'
+    }));
+  } else {
+    dataSources=[
+      {name:'/BIC/A'+src+'00', type:'BW ADSO (Advanced DSO)', description:'Primary transactional source for '+(name||'the object')},
+      {name:'0COMP_CODE_ATTR', type:'Master Data — Attributes', description:'Company code / organisational master'},
+      {name:'0MATERIAL_ATTR', type:'Master Data — Attributes', description:'Material master descriptions & hierarchy'},
+      {name:'0CALDAY', type:'Time Characteristic', description:'Calendar-day granularity for time series'},
+    ];
+  }
+  const measuresOut=measures.map(m=>({name:m.name, dataType:m.dataType, aggregation:'SUM'}));
+  const dimsOut=dims.map(d=>({name:d.name, dataType:d.dataType, source:(parsed&&parsed.sources[0])||('/BIC/A'+src+'00'), description:'Descriptive attribute'}));
+  let calculations = (parsed && parsed.calcs && parsed.calcs.length) ? parsed.calcs.slice(0,8) : [];
+  const has=n=>measures.some(m=>(m.name||'').toUpperCase().includes(n));
+  if(has('REVENUE')&&has('COST') && !calculations.some(c=>/margin/i.test(c.name)))
+    calculations.push({name:'Net Margin', formula:'REVENUE - COST', critical:true, description:'Absolute gross profit per line item.'});
+  if(!calculations.length)
+    calculations.push({name:'YoY Growth %', formula:'( CURR - PREV ) / NULLIF(PREV,0) * 100', critical:true, description:'Year-over-year growth via time-shift — model as a calculated measure in Datasphere.'});
   return { dataSources, dimensions:dimsOut, measures:measuresOut, calculations };
 }
 
@@ -2109,36 +2147,49 @@ function renderLineageHTML(d){
 }
 
 function buildDemoResult(content, target) {
-  const name = document.getElementById('artName').value || 'Converted_Object';
-  const jid = 'demo-' + Date.now();
-  const ds = {
-    entities: [
-      { name: name + '_View', type: 'Graphical View', businessName: name, columns: [
-        {name:'REVENUE',dataType:'Decimal',semanticType:'Measure'},
-        {name:'COST',dataType:'Decimal',semanticType:'Measure'},
-        {name:'QUANTITY',dataType:'Integer',semanticType:'Measure'},
-        {name:'CUSTOMER_NAME',dataType:'String',semanticType:'Dimension'},
-        {name:'PRODUCT_NAME',dataType:'String',semanticType:'Dimension'},
-        {name:'SALE_DATE',dataType:'Date',semanticType:'Dimension'},
-      ]},
-      { name: name + '_Analytical_Model', type: 'Analytical Dataset', businessName: name + ' Analytics' }
+  const raw = _cvFile || (document.getElementById('artContent')||{}).value || content || '';
+  let name = ((document.getElementById('artName')||{}).value||'').trim();
+  if(!name && _cvFileName) name = _cvFileName.replace(/\.[^.]+$/,'');
+  if(!name) name = 'Converted_Object';
+  name = name.replace(/[^A-Za-z0-9_.\- ]/g,'_').trim() || 'Converted_Object';
+  const parsed = parseArtifact(raw);
+  const up=s=>((s||'COL').toString().toUpperCase().replace(/[^A-Z0-9_]/g,'_').replace(/^_+|_+$/g,'').slice(0,40))||'COL';
+  let columns;
+  if(parsed.measures.length || parsed.dims.length){
+    columns=[
+      ...parsed.measures.map(m=>({name:up(m.name),dataType:m.dataType,semanticType:'Measure'})),
+      ...parsed.dims.map(d=>({name:up(d.name),dataType:d.dataType,semanticType:'Dimension'})),
+    ];
+    const seen=new Set(); columns=columns.filter(c=>{ if(seen.has(c.name))return false; seen.add(c.name); return true; });
+  } else {
+    columns=[
+      {name:'REVENUE',dataType:'Decimal',semanticType:'Measure'},
+      {name:'COST',dataType:'Decimal',semanticType:'Measure'},
+      {name:'QUANTITY',dataType:'Integer',semanticType:'Measure'},
+      {name:'CUSTOMER_NAME',dataType:'String',semanticType:'Dimension'},
+      {name:'PRODUCT_NAME',dataType:'String',semanticType:'Dimension'},
+      {name:'SALE_DATE',dataType:'Date',semanticType:'Dimension'},
+    ];
+  }
+  const jid='demo-'+Date.now();
+  const ds={
+    entities:[
+      { name:name+'_View', type:'Graphical View', businessName:name, columns },
+      { name:name+'_Analytical_Model', type:'Analytical Dataset', businessName:name+' Analytics' }
     ],
-    dataflows: [ { name: name + '_Flow', type: 'Data Flow', source: 'Remote Table', target: name + '_View' } ]
+    dataflows:[ { name:name+'_Flow', type:'Data Flow', source:(parsed.sources[0]||'Remote Table'), target:name+'_View' } ]
   };
-  const sac = {
-    story: { name: name + ' Dashboard', description: 'Auto-generated from BOBJ conversion' },
-    pages: [
-      { name: 'Overview', charts: [{type:'Bar',measure:'REVENUE',dimension:'CUSTOMER_NAME'},{type:'Line',measure:'REVENUE',dimension:'SALE_DATE'}] },
-      { name: 'Product Analysis', charts: [{type:'Pie',measure:'REVENUE',dimension:'PRODUCT_NAME'}] }
-    ]
-  };
+  const firstM=(columns.find(c=>c.semanticType==='Measure')||{}).name||'MEASURE';
+  const firstD=(columns.find(c=>c.semanticType==='Dimension')||{}).name||'DIMENSION';
+  const sac={ story:{name:name+' Dashboard',description:'Auto-generated from BOBJ conversion'},
+    pages:[{name:'Overview',charts:[{type:'Bar',measure:firstM,dimension:firstD}]}] };
   return {
-    job_id: jid, status: 'completed', project_name: name,
-    entities: ds.entities.length + sac.pages.length,
-    elapsed: 2, object_type: 'universe',
-    datasphere_entities: ds, sac_model_config: sac,
-    analysis: buildDemoAnalysis(ds.entities, name),
-    conversion_mapping: { source: 'BOBJ Universe', target: target, mapped_objects: ds.entities.length }
+    job_id:jid, status:'completed', project_name:name,
+    entities: ds.entities.length,
+    elapsed:2, object_type:'universe',
+    datasphere_entities:ds, sac_model_config:sac,
+    analysis: buildDemoAnalysis(ds.entities, name, parsed),
+    conversion_mapping:{ source:'BOBJ Universe', target:target, mapped_objects:ds.entities.length }
   };
 }
 
