@@ -600,9 +600,7 @@ table.btbl tbody tr:hover td{background:rgba(59,130,246,.04)}
       <div class="ctitle">⚙ Conversion Settings</div>
       <div class="fr"><label>Target System</label>
         <select class="fi" id="cvTarget">
-          <option value="both">Datasphere + SAC (Both)</option>
-          <option value="datasphere">SAP Datasphere only</option>
-          <option value="sac">SAP Analytics Cloud only</option>
+          <option value="datasphere">SAP Datasphere</option>
         </select>
       </div>
       <div class="fr"><label>Object Type</label>
@@ -1214,44 +1212,35 @@ function renderResult(d) {
   document.getElementById('cvResult').style.display='block';
   document.getElementById('cvResTitle').textContent=d.project_name||'Conversion Result';
   document.getElementById('cvResMeta').textContent=`Job ${d.job_id}  ·  ${d.entities||0} entities  ·  ${d.elapsed||0}s`;
-
-  // Build tabs from result keys
-  const res = d.datasphere_entities||d.sac_model_config||d.conversion_mapping||d;
-  const keys = typeof res==='object' ? Object.keys(res).filter(k=>typeof res[k]==='object'||typeof res[k]==='string') : [];
-  const _labels={analysis:'📋 Object Analysis',lineage:'🔀 Data Lineage',entities:'🧊 Proposed Model',dataflows:'⚙ Data Flows'};
-  const _tabs=[];
-  if(d.analysis) _tabs.push({k:'analysis',label:_labels.analysis});
-  if(d.analysis||d.datasphere_entities) _tabs.push({k:'lineage',label:_labels.lineage});
-  keys.forEach(k=>_tabs.push({k,label:_labels[k]||k}));
-  if(_tabs.length) {
-    document.getElementById('resTabBar').innerHTML = _tabs.map((t,i)=>
-      `<div class="tbtab ${i===0?'active':''}" onclick="showResTab('${t.k}',this)">${t.label}</div>`).join('');
-    showResTabContent(_tabs[0].k, res[_tabs[0].k]);
-  } else {
-    document.getElementById('resContent').textContent=JSON.stringify(d,null,2);
-  }
+  const tabs=[
+    {k:'analysis',label:'📋 Object Analysis'},
+    {k:'lineage',label:'🔀 Data Lineage'},
+    {k:'cds',label:'🔍 CDS Alternatives'},
+    {k:'gview',label:'🧊 Graphical View'},
+    {k:'amodel',label:'📊 Analytical Model'},
+    {k:'csn',label:'⤓ CSN (Datasphere)'},
+  ];
+  document.getElementById('resTabBar').innerHTML = tabs.map((t,i)=>
+    `<div class="tbtab ${i===0?'active':''}" onclick="showResTab('${t.k}',this)">${t.label}</div>`).join('');
+  showResTabContent('analysis');
 }
 
 function showResTab(key,btn) {
   document.querySelectorAll('#resTabBar .tbtab').forEach(t=>t.classList.remove('active'));
-  btn.classList.add('active');
-  const d=_jobResult;
-  const res=d.datasphere_entities||d.sac_model_config||d.conversion_mapping||d;
-  showResTabContent(key,res[key]);
+  if(btn) btn.classList.add('active');
+  showResTabContent(key);
 }
-function showResTabContent(key,val) {
+function showResTabContent(key) {
   const el=document.getElementById('resContent');
-  if(key==='lineage' && _jobResult){
-    el.style.whiteSpace='normal';
-    el.innerHTML=renderLineageHTML(_jobResult);
-  } else if(key==='analysis' && _jobResult && _jobResult.analysis){
-    el.style.whiteSpace='normal';
-    el.innerHTML=renderAnalysisHTML(_jobResult.analysis);
-  } else {
-    el.style.whiteSpace='pre-wrap';
-    el.innerHTML='';
-    el.textContent=JSON.stringify(val,null,2);
-  }
+  const d=_jobResult||{};
+  el.style.whiteSpace='normal';
+  if(key==='analysis'){ el.innerHTML=renderAnalysisHTML(d.analysis||{}); }
+  else if(key==='lineage'){ el.innerHTML=renderLineageHTML(d); }
+  else if(key==='cds'){ el.innerHTML=renderCDSHTML(d); }
+  else if(key==='gview'){ el.innerHTML=renderGraphicalViewHTML(d); }
+  else if(key==='amodel'){ el.innerHTML=renderAnalyticalModelHTML(d); }
+  else if(key==='csn'){ el.style.whiteSpace='pre-wrap'; el.innerHTML=''; el.textContent=JSON.stringify(buildDatasphereCSN2(d),null,2); }
+  else { el.style.whiteSpace='pre-wrap'; el.innerHTML=''; el.textContent=JSON.stringify(d,null,2); }
 }
 
 function dlResult(fmt) {
@@ -1299,12 +1288,12 @@ function buildDatasphereCSN(ents){
 function exportDatasphereCSN(){
   const ents=(_jobResult && _jobResult.datasphere_entities && _jobResult.datasphere_entities.entities) || [];
   if(!ents.length){ toast('No Datasphere entities to export — run a conversion first','err'); return; }
-  const csn=buildDatasphereCSN(ents);
+  const csn=buildDatasphereCSN2(_jobResult||{});
   const fname=`datasphere-import-${(_jobId||'objects').replace(/[^A-Za-z0-9_-]/g,'')}.json`;
   const blob=new Blob([JSON.stringify(csn,null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),4000);
-  const n=Object.keys(csn.definitions).length;
+  const n=Object.keys(csn.definitions||{}).length;
   addLog('OK',`Datasphere CSN exported — ${n} object(s) → ${fname}`);
   toast(`Datasphere CSN downloaded (${n} object${n>1?'s':''})`,'ok');
   showCsnImportModal(fname, n);
@@ -2079,6 +2068,76 @@ function buildDemoAnalysis(entities, name, parsed){
   if(!calculations.length)
     calculations.push({name:'YoY Growth %', formula:'( CURR - PREV ) / NULLIF(PREV,0) * 100', critical:true, description:'Year-over-year growth via time-shift — model as a calculated measure in Datasphere.'});
   return { dataSources, dimensions:dimsOut, measures:measuresOut, calculations };
+}
+
+function _escH(s){return (s==null?'':(''+s)).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));}
+function _up(s){return ((s||'X').toString().toUpperCase().replace(/[^A-Z0-9_]/g,'_'))||'X';}
+
+function renderCDSHTML(d){
+  const alts=buildCDSAlternatives(d);
+  const cards=alts.map(a=>`<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div><div style="font-family:var(--mono);font-weight:700;color:var(--text)">${_escH(a.view)}</div>
+        <div style="font-size:12px;color:var(--gray2);margin-top:2px">${_escH(a.desc)}</div>
+        <div style="font-size:11px;color:var(--gray);margin-top:6px"><span class="tchip">${_escH(a.module)}</span> &nbsp;&#8594; replaces <span style="font-family:var(--mono);color:var(--gray2)">${_escH(a.mapsTo)}</span></div></div>
+      <div style="background:${a.confidence>=80?'rgba(34,197,94,.15)':'rgba(234,179,8,.15)'};color:${a.confidence>=80?'var(--green)':'var(--yellow)'};padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;white-space:nowrap">${a.confidence}% match</div>
+    </div>
+    <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:5px">${(a.fields||[]).map(f=>`<span style="background:#f8fafc;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11px;font-family:var(--mono);color:var(--gray2)">${_escH(f)}</span>`).join('')}</div>
+  </div>`).join('');
+  return `<div style="white-space:normal;line-height:1.5"><div style="font-size:13px;color:var(--gray2);margin-bottom:12px">S/4HANA CDS views recommended as the sources for <strong style="color:var(--text)">${_escH(d.project_name)}</strong> — these become the inputs of the Datasphere graphical view below.</div>${cards}</div>`;
+}
+
+function renderGraphicalViewHTML(d){
+  const alts=buildCDSAlternatives(d);
+  const cols=((d.datasphere_entities&&d.datasphere_entities.entities&&d.datasphere_entities.entities[0]&&d.datasphere_entities.entities[0].columns))||[];
+  const vname=(d.project_name||'Object')+'_GraphicalView';
+  const srcChips=alts.map(a=>`<span class="tchip" style="font-size:11px;margin:2px 0">${_escH(a.view)}</span>`).join(' ');
+  const colRows=cols.map(c=>`<tr><td style="font-weight:600">${_escH(c.name)}</td><td><span class="tchip">${_escH(c.dataType)}</span></td><td>${c.semanticType==='Measure'?'📊 Measure':'📐 Dimension'}</td></tr>`).join('');
+  return `<div style="white-space:normal;line-height:1.5">
+    <div style="font-size:13px;color:var(--gray2);margin-bottom:14px">Datasphere <strong style="color:var(--text)">Graphical View</strong> <span style="font-family:var(--mono)">${_escH(vname)}</span> — composed by joining the recommended S/4HANA CDS views.</div>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;flex:1;min-width:200px"><div style="font-size:10px;font-weight:700;color:var(--gray);margin-bottom:6px;letter-spacing:.5px">SOURCES — CDS VIEWS</div>${srcChips||'—'}</div>
+      <div style="font-size:20px;color:var(--gray)">&#8594;</div>
+      <div style="background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.3);border-radius:8px;padding:10px 14px;font-weight:700;color:var(--orange);text-align:center">&#10857; Join / Union<div style="font-size:11px;font-weight:500;color:var(--gray2);margin-top:3px">on shared keys</div></div>
+      <div style="font-size:20px;color:var(--gray)">&#8594;</div>
+      <div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:10px 14px;font-weight:700;color:var(--green);text-align:center">&#129482; View<div style="font-size:11px;font-weight:500;color:var(--gray2);margin-top:3px;font-family:var(--mono)">${_escH(vname)}</div></div>
+    </div>
+    <div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:8px">Output Columns (${cols.length})</div>
+    <div style="overflow-x:auto"><table class="btbl" style="width:100%"><thead><tr><th>Column</th><th>Data Type</th><th>Role</th></tr></thead><tbody>${colRows}</tbody></table></div>
+  </div>`;
+}
+
+function renderAnalyticalModelHTML(d){
+  const a=d.analysis||{};
+  const name=(d.project_name||'Object')+'_AnalyticalModel';
+  const sec=(icon,title,n,body)=>`<div style="margin-bottom:20px"><div style="font-size:14px;font-weight:800;color:var(--text);margin-bottom:9px">${icon} ${title} <span style="color:var(--gray);font-weight:600">(${n})</span></div>${body}</div>`;
+  const tbl=(head,rows)=>`<div style="overflow-x:auto"><table class="btbl" style="width:100%"><thead><tr>${head.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows||''}</tbody></table></div>`;
+  const dimRows=(a.dimensions||[]).map(x=>`<tr><td style="font-weight:600">${_escH(x.name)}</td><td><span class="tchip">${_escH(x.dataType)}</span></td></tr>`).join('');
+  const meaRows=(a.measures||[]).map(x=>`<tr><td style="font-weight:600">${_escH(x.name)}</td><td><span style="font-size:11px;font-weight:700;background:rgba(34,197,94,.12);color:var(--green);padding:2px 8px;border-radius:10px">${_escH(x.aggregation||'SUM')}</span></td><td><span class="tchip">${_escH(x.dataType)}</span></td></tr>`).join('');
+  const calcRows=(a.calculations||[]).map(c=>`<tr><td style="font-weight:600">${_escH(c.name)} ${c.critical?'<span style="font-size:9px;font-weight:700;background:rgba(239,68,68,.12);color:var(--red);padding:1px 6px;border-radius:7px">CRIT</span>':''}</td><td><code style="font-family:var(--mono);font-size:11px;background:#f6f8fa;border:1px solid var(--border);padding:3px 7px;border-radius:4px;color:#1f2328">${_escH(c.formula)}</code></td></tr>`).join('');
+  return `<div style="white-space:normal;line-height:1.5">
+    <div style="font-size:13px;color:var(--gray2);margin-bottom:14px">Datasphere <strong style="color:var(--text)">Analytical Model</strong> <span style="font-family:var(--mono)">${_escH(name)}</span> — data category <span class="tchip">CUBE</span>, fact source = the graphical view.</div>
+    ${sec('📐','Dimensions',(a.dimensions||[]).length,tbl(['Name','Data Type'],dimRows))}
+    ${sec('📊','Measures',(a.measures||[]).length,tbl(['Name','Aggregation','Data Type'],meaRows))}
+    ${sec('🧮','Calculated Measures',(a.calculations||[]).length,tbl(['Name','Formula'],calcRows))}
+  </div>`;
+}
+
+function buildDatasphereCSN2(d){
+  const name=(d.project_name||'Object');
+  const tech=_up(name);
+  const cols=((d.datasphere_entities&&d.datasphere_entities.entities&&d.datasphere_entities.entities[0]&&d.datasphere_entities.entities[0].columns))||[];
+  const a=d.analysis||{};
+  const alts=buildCDSAlternatives(d);
+  const baseEl={};
+  cols.forEach(c=>{ const m=_csnType(c.dataType); const e={type:m.type}; if(m.length)e.length=m.length; if(m.precision){e.precision=m.precision;e.scale=m.scale;} if((c.semanticType||'')==='Measure') e['@Aggregation.default']={'#':'SUM'}; baseEl[_up(c.name)]=e; });
+  const modelEl=Object.assign({}, baseEl);
+  (a.calculations||[]).forEach(c=>{ modelEl[_up(c.name)]={type:'cds.Decimal',precision:23,scale:2,'@EndUserText.label':c.name,'@DataWarehouse.calculatedExpression':c.formula}; });
+  const view=tech+'_GRAPHICALVIEW', model=tech+'_ANALYTICALMODEL';
+  const defs={};
+  defs[view]={kind:'entity','@EndUserText.label':name+' (Graphical View)','@DataWarehouse.sourceConnection':'S4HANA','@DataWarehouse.cdsSourceViews':alts.map(x=>x.view),elements:baseEl};
+  defs[model]={kind:'entity','@Analytics.dataCategory':{'#':'CUBE'},'@EndUserText.label':name+' (Analytical Model)','@DataWarehouse.factSource':view,elements:modelEl};
+  return {'$version':'2.0','@DataWarehouse.targetSpace':'CRAVE_INFOTECH','@DataWarehouse.requiredConnection':{type:'S/4HANA',protocol:'ABAP/CDS (SAP Cloud Connector)',bindTo:view},definitions:defs};
 }
 
 function renderAnalysisHTML(a){
