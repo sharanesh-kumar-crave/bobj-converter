@@ -637,7 +637,7 @@ table.btbl tbody tr:hover td{background:rgba(59,130,246,.04)}
           <button class="btn btn-ghost btn-sm" onclick="dlResult('json')">⬇ JSON</button>
           <button class="btn btn-ghost btn-sm" onclick="dlResult('txt')">⬇ TXT</button>
           <button class="btn btn-blue btn-sm" id="pushDsBtn" onclick="exportDatasphereCSN()">⤓ Export to Datasphere (CSN)</button>
-          <button class="btn btn-dark btn-sm" id="pushSacBtn" onclick="pushTo('sac')">↑ Push to SAC</button>
+          
         </div>
       </div>
       <div class="tabbar" id="resTabBar"></div>
@@ -704,7 +704,8 @@ table.btbl tbody tr:hover td{background:rgba(59,130,246,.04)}
 
 <!-- ═══════════════════ PAGE: CDS ALTERNATIVES ═══════════════════ -->
 <div class="page" id="page-cds">
-<div class="ph"><h1>CDS View Alternatives</h1><p>AI-powered recommendations for SAP CDS view replacements for your BOBJ objects</p></div>
+<div class="ph"><h1>S/4HANA CDS View Alternatives</h1><p>Standard SAP S/4HANA CDS view replacements for your converted BOBJ views</p></div>
+<div id="cdsLinkBanner"></div>
 <div class="card" style="margin-bottom:18px">
   <div class="g2" style="align-items:flex-end;gap:12px">
     <div class="fr" style="margin-bottom:0">
@@ -1015,6 +1016,7 @@ function showPage(id, btn) {
   document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
   if(btn) btn.classList.add('active');
+  if(id==='cds' && typeof syncCDSLink==='function') syncCDSLink();
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1215,10 +1217,11 @@ function renderResult(d) {
   // Build tabs from result keys
   const res = d.datasphere_entities||d.sac_model_config||d.conversion_mapping||d;
   const keys = typeof res==='object' ? Object.keys(res).filter(k=>typeof res[k]==='object'||typeof res[k]==='string') : [];
+  const _labels={analysis:'📋 Object Analysis',lineage:'🔀 Data Lineage',entities:'🧊 Proposed Model',dataflows:'⚙ Data Flows'};
   const _tabs=[];
-  if(d.analysis) _tabs.push({k:'analysis',label:'📋 Analysis'});
-  if(d.analysis||d.datasphere_entities) _tabs.push({k:'lineage',label:'🔀 Data Lineage'});
-  keys.forEach(k=>_tabs.push({k,label:k}));
+  if(d.analysis) _tabs.push({k:'analysis',label:_labels.analysis});
+  if(d.analysis||d.datasphere_entities) _tabs.push({k:'lineage',label:_labels.lineage});
+  keys.forEach(k=>_tabs.push({k,label:_labels[k]||k}));
   if(_tabs.length) {
     document.getElementById('resTabBar').innerHTML = _tabs.map((t,i)=>
       `<div class="tbtab ${i===0?'active':''}" onclick="showResTab('${t.k}',this)">${t.label}</div>`).join('');
@@ -1490,6 +1493,51 @@ function convertSelectedObjs() {
 // ══════════════════════════════════════════════════════════════════════
 // CDS ALTERNATIVES
 // ══════════════════════════════════════════════════════════════════════
+function syncCDSLink(){
+  const banner=document.getElementById('cdsLinkBanner');
+  if(!banner) return;
+  if(!_jobResult){ banner.innerHTML=''; return; }
+  const obj=_jobResult.project_name||'Converted Object';
+  const views=((_jobResult.datasphere_entities&&_jobResult.datasphere_entities.entities)||[]).map(e=>e.name);
+  banner.innerHTML=`<div class="card" style="margin-bottom:14px;border-left:3px solid var(--orange);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div><div style="font-size:13px;font-weight:700;color:var(--text)">🔗 Linked to last conversion — ${obj}</div>
+    <div style="font-size:12px;color:var(--gray2);margin-top:4px">${views.length} view(s): ${views.map(v=>`<span class="tchip">${v}</span>`).join(' ')}</div></div>
+    <button class="btn btn-primary btn-sm" onclick="cdsForConversion()">Find S/4HANA CDS alternatives →</button>
+  </div>`;
+  cdsForConversion();
+}
+function cdsForConversion(){
+  if(!_jobResult){ toast('Run a conversion first (Converter tab)','info'); return; }
+  renderCDSResult({alternatives:buildCDSAlternatives(_jobResult), linkedObject:_jobResult.project_name});
+}
+function buildCDSAlternatives(d){
+  const name=((d.project_name||'')+'').toLowerCase();
+  const ents=(d.datasphere_entities&&d.datasphere_entities.entities)||[];
+  const cols=((ents[0]&&ents[0].columns)||[]).map(c=>(c.name||'').toLowerCase());
+  const v0=(ents[0]&&ents[0].name)||'Converted_View';
+  const out=[];
+  const add=(view,confidence,desc,module,fields)=>out.push({view,confidence,desc,module,fields,mapsTo:v0});
+  if(/purchase|_po_|po_|purch|procure|vendor|supplier/.test(name)){
+    add('I_PurchaseOrderItemAPI01',94,'Interface view — purchase order items','MM · Purchasing',['PurchaseOrder','PurchaseOrderItem','Material','OrderQuantity','NetAmount']);
+    add('C_PurchaseOrderItemDEX',88,'Consumption view — PO item analytics','MM · Purchasing',['PurchaseOrder','Supplier','Plant','NetPriceAmount']);
+    add('I_PurOrdAccountAssignment',76,'PO account assignment interface view','MM · Purchasing',['PurchaseOrder','GLAccount','CostCenter']);
+  } else if(/sales|billing|invoice|revenue|order|customer/.test(name)){
+    add('C_SalesDocumentItemDEX',92,'Sales document line items (analytics)','SD · Sales',['SalesDocument','SalesDocumentItem','Material','OrderQuantity','NetAmount']);
+    add('I_SalesOrderItem',85,'Interface view — sales order items','SD · Sales',['SalesOrder','SalesOrderItem','Product','RequestedQuantity']);
+  } else if(/ledger|gl_|account|finance|fi_|profit|cost/.test(name)){
+    add('I_GLAccountLineItem',90,'General ledger line items','FI · Finance',['CompanyCode','FiscalYear','GLAccount','AmountInCompanyCodeCurrency']);
+    add('C_GLLineItemsQ',82,'GL line items analytical query','FI · Finance',['GLAccount','ProfitCenter','Amount']);
+  }
+  if(cols.some(c=>/customer|partner|vendor|supplier/.test(c))) add('I_BusinessPartner',78,'Business Partner master data view','Cross · Master Data',['BusinessPartner','BusinessPartnerName','Country']);
+  if(cols.some(c=>/product|material|item/.test(c))) add('I_Product',75,'Product / material master view','Cross · Master Data',['Product','ProductType','BaseUnit']);
+  if(cols.some(c=>/date|day|calendar|time/.test(c))) add('I_CalendarDate',68,'Calendar date dimension view','Cross · Master Data',['CalendarDate','FiscalYearPeriod']);
+  if(!out.length){
+    add('C_SalesDocumentItemDEX',80,'Generic transactional consumption view','Cross',['Document','Item','Amount']);
+    add('I_BusinessPartner',70,'Business Partner master data view','Cross · Master Data',['BusinessPartner','Country']);
+  }
+  return out;
+}
+
 async function getCDS() {
   const input=document.getElementById('cdsInput').value.trim();
   if(!input){toast('Enter an object name or content','info');return;}
@@ -1513,13 +1561,16 @@ async function getCDS() {
 
 function renderCDSResult(d) {
   const alts=d.alternatives||[];
-  if(!alts.length){document.getElementById('cdsResult').innerHTML='<div class="empty"><div class="etxt">No CDS alternatives found</div></div>';return;}
-  document.getElementById('cdsResult').innerHTML=alts.map(a=>`
+  const el=document.getElementById('cdsResult');
+  if(!alts.length){el.innerHTML='<div class="empty"><div class="etxt">No CDS alternatives found</div></div>';return;}
+  const head=d.linkedObject?`<div style="font-size:13px;color:var(--gray2);margin-bottom:12px">Showing <strong style="color:var(--text)">${alts.length}</strong> S/4HANA CDS view alternative(s) for <strong style="color:var(--orange)">${d.linkedObject}</strong>.</div>`:'';
+  el.innerHTML=head+alts.map(a=>`
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;gap:12px">
         <div>
           <div style="font-size:14px;font-weight:700;color:var(--text);font-family:var(--mono)">${a.view}</div>
           <div style="font-size:12px;color:var(--gray2);margin-top:3px">${a.desc||''}</div>
+          <div style="font-size:11px;color:var(--gray);margin-top:6px">${a.module?`<span class="tchip">${a.module}</span>`:''}${a.mapsTo?` &nbsp;&#8594; replaces <span style="font-family:var(--mono);color:var(--gray2)">${a.mapsTo}</span>`:''}</div>
         </div>
         <div style="background:${a.confidence>=80?'rgba(34,197,94,.15)':'rgba(234,179,8,.15)'};color:${a.confidence>=80?'var(--green)':'var(--yellow)'};padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;white-space:nowrap">${a.confidence}% match</div>
       </div>
