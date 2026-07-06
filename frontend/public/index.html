@@ -1003,6 +1003,20 @@ table.btbl tbody tr:hover td{background:rgba(59,130,246,.04)}
   </div>
 </div>
 
+<!-- Project Detail -->
+<div class="moverlay" id="modalProjDetail">
+  <div class="modal">
+    <div class="mh"><span id="pdName">Project</span> <button class="mclose" onclick="closeModal('modalProjDetail')">✕</button></div>
+    <div id="pdDesc" style="color:var(--gray2);font-size:13px;margin-bottom:10px"></div>
+    <div class="proj-meta" id="pdMeta" style="margin-bottom:16px"></div>
+    <div class="ctitle">📦 Conversions</div>
+    <div id="pdConversions" style="margin-top:8px"></div>
+    <div class="btn-row" style="margin-top:16px">
+      <button class="btn btn-dark" onclick="closeModal('modalProjDetail')">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ══════════════════════════════════════════════════════════════════════
 // CONFIG
@@ -1601,7 +1615,7 @@ function renderProjects() {
   const grid=document.getElementById('projGrid');
   if(!_projects.length){grid.innerHTML='<div class="empty" style="grid-column:1/-1;padding:48px"><div class="eico">📁</div><div class="etxt">No projects yet</div></div>';return;}
   grid.innerHTML=_projects.map(p=>`
-    <div class="proj-card">
+    <div class="proj-card" onclick="openProjectDetail('${p.id}')">
       <div class="proj-name">${p.name}</div>
       <div class="proj-desc">${p.description||'No description'}</div>
       <div class="proj-meta">
@@ -1610,6 +1624,34 @@ function renderProjects() {
         <span>📅 ${p.created_at?new Date(p.created_at).toLocaleDateString():''}</span>
       </div>
     </div>`).join('');
+}
+
+async function openProjectDetail(id) {
+  const p=_projects.find(x=>String(x.id)===String(id));
+  if(!p) return;
+  document.getElementById('pdName').textContent=p.name||'Project';
+  document.getElementById('pdDesc').textContent=p.description||'No description';
+  document.getElementById('pdMeta').innerHTML=`
+    <span>🎯 ${p.target||'Datasphere + SAC'}</span>
+    <span>📅 ${p.created_at?new Date(p.created_at).toLocaleDateString():''}</span>`;
+  const box=document.getElementById('pdConversions');
+  box.innerHTML='<div class="empty" style="padding:16px"><div class="etxt">Loading…</div></div>';
+  openModal('modalProjDetail');
+  try {
+    const r=await fetch(`${API}/api/v1/conversions?project_id=${encodeURIComponent(id)}`);
+    const d=await r.json();
+    const jobs=d.jobs||d||[];
+    box.innerHTML=jobs.length?jobs.slice().reverse().map(j=>`
+      <div class="history-item">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${j.project_name||j.job_id||'—'}</div>
+          <div style="font-size:11px;color:var(--gray2)">${j.object_type||'—'}${j.elapsed?' · '+j.elapsed+'s':''}${j.entities?' · '+j.entities+' entities':''}</div>
+        </div>
+        <div class="history-status ${j.status||''}">${j.status||'—'}</div>
+      </div>`).join(''):'<div class="empty" style="padding:20px"><div class="etxt">No conversions yet</div></div>';
+  } catch(e) {
+    box.innerHTML='<div class="empty" style="padding:20px"><div class="etxt">Could not load conversions</div></div>';
+  }
 }
 
 function populateProjectDropdown() {
