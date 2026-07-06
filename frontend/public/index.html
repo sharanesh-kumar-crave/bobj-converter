@@ -991,9 +991,7 @@ table.btbl tbody tr:hover td{background:rgba(59,130,246,.04)}
     <div class="fr"><label>BOBJ System (optional)</label><input class="fi" type="text" id="pSys" placeholder="e.g. BOBJ PRD"></div>
     <div class="fr"><label>Target</label>
       <select class="fi" id="pTarget">
-        <option value="both">Datasphere + SAC</option>
-        <option value="datasphere">Datasphere only</option>
-        <option value="sac">SAC only</option>
+        <option value="datasphere">SAP Datasphere</option>
       </select>
     </div>
     <div class="btn-row">
@@ -1619,7 +1617,7 @@ function renderProjects() {
       <div class="proj-name">${p.name}</div>
       <div class="proj-desc">${p.description||'No description'}</div>
       <div class="proj-meta">
-        <span>🎯 ${p.target||'Datasphere + SAC'}</span>
+        <span>🎯 ${p.target||'SAP Datasphere'}</span>
         <span>📦 ${p.job_count||0} conversions</span>
         <span>📅 ${p.created_at?new Date(p.created_at).toLocaleDateString():''}</span>
       </div>
@@ -1632,7 +1630,7 @@ async function openProjectDetail(id) {
   document.getElementById('pdName').textContent=p.name||'Project';
   document.getElementById('pdDesc').textContent=p.description||'No description';
   document.getElementById('pdMeta').innerHTML=`
-    <span>🎯 ${p.target||'Datasphere + SAC'}</span>
+    <span>🎯 ${p.target||'SAP Datasphere'}</span>
     <span>📅 ${p.created_at?new Date(p.created_at).toLocaleDateString():''}</span>`;
   const box=document.getElementById('pdConversions');
   box.innerHTML='<div class="empty" style="padding:16px"><div class="etxt">Loading…</div></div>';
