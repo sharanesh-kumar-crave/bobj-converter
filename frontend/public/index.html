@@ -585,7 +585,7 @@ table.btbl tbody tr:hover td{background:rgba(59,130,246,.04)}
       </div>
       <!-- Upload -->
       <div class="tbpanel" id="inp-1">
-        <div class="dropzone" id="cvDropZone" onclick="document.getElementById('cvFile').click()">
+        <div class="dropzone" id="cvDropZone" onclick="document.getElementById('cvFile').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleCvDrop(event)">
           <div class="dico">📁</div>
           <p><strong>Click or drop</strong> BOBJ export<br><span style="font-size:11px;opacity:.6">.unx .blx .wid .rpt .zip .json .xml .txt</span></p>
         </div>
@@ -1120,7 +1120,11 @@ function switchInput(idx, btn) {
 let _cvFile=null, _cvFileName='', _jobId=null, _jobResult=null;
 
 function handleCvFile(input) {
-  const f=input.files[0]; if(!f) return;
+  const f=input.files[0];
+  loadCvFile(f);
+}
+function loadCvFile(f) {
+  if(!f) return;
   const reader=new FileReader();
   reader.onload=e=>{
     _cvFile=e.target.result;
@@ -1131,6 +1135,12 @@ function handleCvFile(input) {
     addLog('INFO',`File loaded: ${f.name}`);
   };
   reader.readAsText(f);
+}
+function handleCvDrop(e) {
+  e.preventDefault();
+  document.getElementById('cvDropZone').classList.remove('drag');
+  const f=e.dataTransfer.files[0];
+  if(f) loadCvFile(f);
 }
 function clearCvFile() {
   _cvFile=null; _cvFileName='';
