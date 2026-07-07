@@ -599,9 +599,9 @@ table.btbl tbody tr:hover td{background:rgba(59,130,246,.04)}
       <div class="tbpanel" id="inp-1">
         <div class="dropzone" id="cvDropZone" onclick="document.getElementById('cvFile').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleCvDrop(event)">
           <div class="dico">📁</div>
-          <p><strong>Click or drop</strong> BOBJ export<br><span style="font-size:11px;opacity:.6">.unx .blx .wid .rpt .zip .json .xml .txt</span></p>
+          <p><strong>Click or drop</strong> BOBJ / BW export<br><span style="font-size:11px;opacity:.6">.unx .blx .wid .rpt .zip .json .xml .txt · BW XMI (any / no extension)</span></p>
         </div>
-        <input type="file" id="cvFile" style="display:none" accept=".unx,.blx,.wid,.rpt,.zip,.json,.xml,.txt" onchange="handleCvFile(this)">
+        <input type="file" id="cvFile" style="display:none" onchange="handleCvFile(this)">
         <div id="cvFileChip" style="display:none" class="file-chip">
           <span>📄</span><span class="fn" id="cvFileName"></span>
           <span class="rm" onclick="clearCvFile()">✕</span>
@@ -2192,6 +2192,29 @@ function parseArtifact(raw){
   }
   (raw.match(/<Table\b[^>]*name\s*=\s*"([^"]+)"/gi)||[]).forEach(x=>{const nm=(x.match(/name\s*=\s*"([^"]+)"/i)||[])[1]; if(nm) sources.add(nm.toUpperCase());});
   (raw.match(/\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)/gi)||[]).forEach(x=>{const nm=x.split(/\s+/)[1]; if(nm) sources.add(nm.toUpperCase());});
+  // SAP BW XMI / CWM metadata export (InfoCube / DTP / Transformation, often no extension).
+  // InfoObjects: aggregation != "" => key figure (measure); else characteristic (dimension).
+  if(/XMISAPBI:com\.sap\.bw/i.test(raw)){
+    const cubeNm=(raw.match(/com\.sap\.bw\.cwm\.olap\.InfoCube\s[^>]*\bname\s*=\s*"([^"]+)"/i)||[])[1];
+    const cubeLbl=(raw.match(/com\.sap\.bw\.cwm\.olap\.InfoCube\s[^>]*\bannotation\s*=\s*"([^"]+)"/i)||[])[1];
+    if(cubeNm) sources.add((cubeLbl||cubeNm).toUpperCase());
+    const TECH=/^0(CHNGID|REQUID|RECORDTP|RECORDMODE|REQTSN|SOURSYSTEM|CANCEL|REQUEST|RECORD|BATCH)/i;
+    const ioSeen=new Set();
+    const ioRe=/<XMISAPBI:com\.sap\.bw\.cwm\.core\.InfoObject\s+([^>]*?)>/gi;
+    let im;
+    while((im=ioRe.exec(raw))){
+      const seg=im[1];
+      const nm=(seg.match(/\bname\s*=\s*"([^"]*)"/i)||[])[1]; if(!nm || ioSeen.has(nm)) continue; ioSeen.add(nm);
+      if(TECH.test(nm)) continue;
+      const label=(((seg.match(/\bannotation\s*=\s*"([^"]*)"/i)||[])[1])||nm).trim();
+      const agg=(((seg.match(/\baggregation\s*=\s*"([^"]*)"/i)||[])[1])||'').trim();
+      if(agg){ measures.push({name:label,dataType:'Decimal',aggregation:agg.toUpperCase(),expression:''}); }
+      else {
+        const isDate=/^0(CAL|FISC)/i.test(nm) || /(date|\bday\b|month|year|period|calendar|week|quarter)/i.test(label);
+        dims.push({name:label,dataType:isDate?'Date':'String',expression:''});
+      }
+    }
+  }
   // Fallback: XML parsing found little (e.g. a plain-text / list-style export) —
   // extract fields generically so the output reflects the uploaded content.
   if(dims.length + measures.length < 2){
