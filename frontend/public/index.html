@@ -2192,7 +2192,53 @@ function parseArtifact(raw){
   }
   (raw.match(/<Table\b[^>]*name\s*=\s*"([^"]+)"/gi)||[]).forEach(x=>{const nm=(x.match(/name\s*=\s*"([^"]+)"/i)||[])[1]; if(nm) sources.add(nm.toUpperCase());});
   (raw.match(/\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)/gi)||[]).forEach(x=>{const nm=x.split(/\s+/)[1]; if(nm) sources.add(nm.toUpperCase());});
+  // Fallback: XML parsing found little (e.g. a plain-text / list-style export) —
+  // extract fields generically so the output reflects the uploaded content.
+  if(dims.length + measures.length < 2){
+    const g=_genericFields(raw);
+    g.dims.forEach(d=>dims.push(d));
+    g.measures.forEach(mm=>measures.push(mm));
+    g.sources.forEach(s=>sources.add(s));
+  }
   return {dims,measures,sources:[...sources],calcs};
+}
+
+// Generic field extractor for non-XML text (plain lists, delimited rows,
+// [Class].[Object] paths). Classifies measure vs dimension by keyword.
+function _genericFields(raw){
+  const dims=[], measures=[], sources=new Set();
+  const MEAS=/(amount|amt|\bqty\b|quantit|price|cost|revenue|\bsales\b|\bnet\b|gross|total|\bvalue\b|margin|profit|balance|discount|\btax\b|weight|volume|\brate\b|count\b|\bunits?\b|\bnmbr\b|\bnum\b)/i;
+  const DATEK=/(date|day|month|year|period|calendar|\btime\b|fiscal|week|quarter)/i;
+  const NOISEW=/^(the|and|for|with|from|select|where|group|order|null|true|false|join|left|right|inner|outer|universe|folder|folders|class|classes|object|objects|report|reports|query|queries|dimension|dimensions|measure|measures|attribute|attributes|detail|details|filter|filters|type|types|name|names|desc|description|descriptions|business|layer|table|tables|column|columns|field|fields|data|list|values|value|prompt|condition|conditions|context|contexts|alias|schema|owner)$/i;
+  const seen=new Set();
+  // technical table/view identifiers anywhere in the text
+  (raw.match(/\/BIC\/[A-Z0-9_]+|(?:DIM|FACT)_[A-Z0-9_]+|[IC]_[A-Z][A-Za-z0-9]+|[A-Z][A-Z0-9]{2,}_[A-Z0-9_]{2,}/g)||[])
+    .forEach(s=>{ if(s.length>=5) sources.add(s.toUpperCase()); });
+  const add=(nm)=>{
+    if(nm==null) return;
+    nm=(''+nm).replace(/[\[\]"'`]/g,'').trim();
+    nm=nm.replace(/^[A-Za-z ]{2,20}:\s*/,'').trim();      // strip "Label: " prefix
+    nm=nm.replace(/\s*\([^)]*\)\s*$/,'').trim();          // strip trailing "(type)"
+    if(nm.length<2 || nm.length>48 || !/[A-Za-z]/.test(nm)) return;
+    const words=nm.split(/[\s_]+/).filter(Boolean);
+    if(words.length>4 || words.every(w=>NOISEW.test(w))) return;
+    const key=nm.toUpperCase().replace(/\s+/g,'_');
+    if(seen.has(key) || sources.has(key)) return;
+    seen.add(key);
+    const isDate=DATEK.test(nm), isMeas=MEAS.test(nm)&&!isDate;
+    if(isMeas) measures.push({name:nm,dataType:'Decimal',aggregation:'SUM',expression:''});
+    else dims.push({name:nm,dataType:isDate?'Date':'String',expression:''});
+  };
+  raw.split(/[\r\n]+/).forEach(line=>{
+    line=(line||'').trim().replace(/^[\-*•\d.)\s]+/,'').trim();
+    if(!line) return;
+    // skip structural header lines (folders/classes/sections) — not fields
+    if(/^(universe|folder|folders|class|classes|subclass|context|contexts|report|reports|query|queries|section|group|table|tables|dimension|dimensions|measure|measures|detail|details|filter|filters)\b\s*[:\-]/i.test(line)) return;
+    if(/[\t,;|]/.test(line)){ line.split(/[\t,;|]/).forEach(add); return; }
+    if(/[\\\/>]|\]\.\[/.test(line)){ add(line.split(/[\\\/>]|\]\.\[/).pop()); return; }
+    add(line);
+  });
+  return {dims:dims.slice(0,30), measures:measures.slice(0,20), sources:[...sources].slice(0,10)};
 }
 
 function buildDemoAnalysis(entities, name, parsed){
