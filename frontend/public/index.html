@@ -1344,6 +1344,7 @@ function renderResult(d) {
     {k:'cds',label:'🔍 CDS Alternatives'},
     {k:'gview',label:'🧊 Graphical View'},
     {k:'amodel',label:'📊 Analytical Model'},
+    {k:'srcmap',label:'🔗 Source Mapping'},
     {k:'csn',label:'⤓ CSN (Datasphere)'},
   ];
   document.getElementById('resTabBar').innerHTML = tabs.map((t,i)=>
@@ -1365,6 +1366,7 @@ function showResTabContent(key) {
   else if(key==='cds'){ el.innerHTML=renderCDSHTML(d); }
   else if(key==='gview'){ el.innerHTML=renderGraphicalViewHTML(d); }
   else if(key==='amodel'){ el.innerHTML=renderAnalyticalModelHTML(d); }
+  else if(key==='srcmap'){ el.innerHTML=renderSourceMappingHTML(d); }
   else if(key==='csn'){ el.style.whiteSpace='pre-wrap'; el.innerHTML=''; el.textContent=JSON.stringify(buildDatasphereCSN2(d),null,2); }
   else { el.style.whiteSpace='pre-wrap'; el.innerHTML=''; el.textContent=JSON.stringify(d,null,2); }
 }
@@ -2292,6 +2294,68 @@ function buildDatasphereCSN2(d){
   defs[view]={kind:'entity','@EndUserText.label':name+' (Graphical View)','@DataWarehouse.sourceConnection':'S4HANA','@DataWarehouse.cdsSourceViews':alts.map(x=>x.view),elements:baseEl};
   defs[model]={kind:'entity','@Analytics.dataCategory':{'#':'CUBE'},'@EndUserText.label':name+' (Analytical Model)','@DataWarehouse.factSource':view,elements:modelEl};
   return {'$version':'2.0','@DataWarehouse.targetSpace':'CRAVE_INFOTECH','@DataWarehouse.requiredConnection':{type:'S/4HANA',protocol:'ABAP/CDS (SAP Cloud Connector)',bindTo:view},definitions:defs};
+}
+
+// ── Source mapping: suggest an S/4HANA CDS view + ingestion mode per source ──
+function _cdsSuggest(name,type){
+  const n=(name||'').toUpperCase();
+  const isFact=/Fact|Transaction/i.test(type||'') || /FACT|TRANSACTION|SALES|ORDER|INVOICE|BILLING|LINE_?ITEM|DELIVERY|LEDGER/.test(n);
+  const map=[
+    [/CUSTOMER|SOLD.?TO|PAYER|BILL.?TO/, 'I_Customer'],
+    [/PRODUCT|MATERIAL|ARTICLE/, 'I_Product'],
+    [/DATE|CALENDAR|FISCAL|PERIOD|\bTIME\b/, 'I_CalendarDate'],
+    [/REGION|COUNTRY|\bGEO/, 'I_Country'],
+    [/SALES_?ORG|SALES.?ORGANI/, 'I_SalesOrganization'],
+    [/PLANT|\bSITE\b/, 'I_Plant'],
+    [/COMPANY|BUKRS/, 'I_CompanyCode'],
+    [/SUPPLIER|VENDOR/, 'I_Supplier'],
+    [/PROFIT_?CENTER/, 'I_ProfitCenter'],
+    [/COST_?CENTER/, 'I_CostCenter'],
+    [/\bGL\b|ACCOUNT|LEDGER/, 'I_GLAccountLineItem'],
+    [/EMPLOYEE|WORKFORCE|PERSON/, 'I_WorkforcePerson'],
+    [/SALES|ORDER|BILLING|INVOICE|DELIVERY/, 'I_SalesOrderItem'],
+  ];
+  let cds=null;
+  for(const pair of map){ if(pair[0].test(n)){ cds=pair[1]; break; } }
+  let custom=false;
+  if(!cds){
+    const base=n.replace(/^(DIM_|FACT_|Z?C?_)/,'').replace(/[^A-Z0-9]+/g,' ').trim().split(' ')[0]||'CustomEntity';
+    cds='I_'+base.charAt(0)+base.slice(1).toLowerCase();
+    custom=true;
+  }
+  return {
+    cds, custom, isFact,
+    mode: isFact?'Replication Flow · delta':'Remote Table · federated',
+    access: isFact?'Local — replicated':'Remote — virtual'
+  };
+}
+function renderSourceMappingHTML(d){
+  const esc=s=>(s==null?'':(''+s)).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+  const srcs=((d.analysis||{}).dataSources)||[];
+  if(!srcs.length) return '<div style="padding:24px;color:var(--gray2)">No data sources detected for this object.</div>';
+  const rows=srcs.map(s=>{
+    const g=_cdsSuggest(s.name,s.type);
+    const badge=g.isFact
+      ? '<span style="font-size:11px;font-weight:700;background:rgba(216,90,48,.12);color:#c2410c;padding:2px 8px;border-radius:10px">Replication Flow · delta</span>'
+      : '<span style="font-size:11px;font-weight:700;background:rgba(83,74,183,.12);color:#4338ca;padding:2px 8px;border-radius:10px">Remote Table · federated</span>';
+    const cdsCell=`<span style="font-family:var(--mono);font-size:12px">${esc(g.cds)}</span>`+
+      (g.custom?' <span style="font-size:10px;font-weight:700;background:rgba(234,179,8,.16);color:#a16207;padding:1px 6px;border-radius:8px">verify</span>':'');
+    return `<tr>
+      <td style="font-family:var(--mono);font-size:12px">${esc(s.name)}</td>
+      <td style="color:var(--gray2)">${esc(s.type)}</td>
+      <td>${cdsCell}</td>
+      <td>${badge}</td>
+      <td style="color:var(--gray2);font-size:12px">${esc(g.access)}</td>
+    </tr>`;
+  }).join('');
+  return `<div style="font-family:var(--font);line-height:1.5">
+    <div style="font-size:13px;color:var(--gray2);margin-bottom:14px">Suggested SAP S/4HANA CDS source and ingestion mode for each data source. <strong style="color:var(--text)">Verify against your released CDS views</strong> before building the remote/replication table in Datasphere.</div>
+    <div style="overflow-x:auto"><table class="btbl" style="width:100%"><thead><tr><th>Source Object</th><th>Detected Type</th><th>Suggested CDS View</th><th>Ingestion Mode</th><th>Data Access</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div style="font-size:12px;color:var(--gray2);border-top:1px solid var(--border);padding-top:12px;margin-top:14px;line-height:1.7">
+      <strong style="color:var(--text)">Rewiring path:</strong> S/4HANA CDS view → Datasphere connection → <span style="color:#c2410c;font-weight:600">Replication Flow</span> (facts, delta) or <span style="color:#4338ca;font-weight:600">Remote Table</span> (dimensions, live) → Graphical View → Analytical Model.<br>
+      Facts are persisted with delta for performance; master-data dimensions are federated live. CDS views must be <em>released for consumption</em> (and <em>extraction-enabled</em> for delta).
+    </div>
+  </div>`;
 }
 
 function renderAnalysisHTML(a){
