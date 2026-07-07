@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, UploadFile, File, Form
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -13,6 +13,7 @@ from app.services.ai_core import run_conversion
 from app.services.datasphere import push_entities
 from app.services.sac import push_model
 from app.db.hana import get_db, execute_dml
+from app.auth.users import get_current_user, require_role
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -138,7 +139,7 @@ class ConversionRecord(BaseModel):
 
 
 @router.post("/record")
-async def record_conversion(payload: ConversionRecord):
+async def record_conversion(payload: ConversionRecord, _: dict = Depends(require_role("editor"))):
     """Persist a completed conversion against a project so the project's
     job_count (SELECT COUNT(*) FROM BOBJ_CONVERSION_JOBS WHERE PROJECT_ID=?)
     reflects it. Best-effort; used by the UI after a conversion completes."""
@@ -182,6 +183,7 @@ async def start_conversion(
     project_id: Optional[str] = Form(None),
     raw_content: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
+    user: dict = Depends(require_role("editor")),
 ):
     content = raw_content or ""
     if file:
@@ -194,7 +196,7 @@ async def start_conversion(
         raise HTTPException(status_code=422, detail="Content is required")
 
     job_id = str(uuid.uuid4())
-    user_id = getattr(request.state, "user", {}).get("sub", "anonymous")
+    user_id = user["id"]
 
     _jobs[job_id] = {
         "job_id": job_id,
@@ -219,9 +221,9 @@ async def start_conversion(
 
 # Keep JSON body POST as well for backwards compat
 @router.post("/json")
-async def start_conversion_json(request: Request, payload: ConversionRequest, background_tasks: BackgroundTasks):
+async def start_conversion_json(payload: ConversionRequest, background_tasks: BackgroundTasks, user: dict = Depends(require_role("editor"))):
     job_id = str(uuid.uuid4())
-    user_id = getattr(request.state, "user", {}).get("sub", "anonymous")
+    user_id = user["id"]
     _jobs[job_id] = {
         "job_id": job_id,
         "project_id": str(payload.project_id) if payload.project_id else None,
@@ -242,7 +244,7 @@ async def start_conversion_json(request: Request, payload: ConversionRequest, ba
 
 
 @router.get("/{job_id}")
-async def get_conversion_result(job_id: str):
+async def get_conversion_result(job_id: str, user: dict = Depends(get_current_user)):
     job = _jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -266,7 +268,7 @@ async def get_conversion_result(job_id: str):
 
 
 @router.get("")
-async def list_jobs(project_id: Optional[str] = None):
+async def list_jobs(project_id: Optional[str] = None, user: dict = Depends(get_current_user)):
     jobs = list(_jobs.values())
     if project_id:
         jobs = [j for j in jobs if j.get("project_id") == project_id]

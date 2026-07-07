@@ -5,7 +5,7 @@ Protected by admin scope.
 """
 import logging
 from fastapi import APIRouter, Request, Depends, HTTPException
-from app.auth.xsuaa import require_scope
+from app.auth.users import get_current_user, require_role
 from app.monitoring.metrics import metrics
 from app.db.hana import get_db, execute_query, execute_dml
 
@@ -14,7 +14,7 @@ router = APIRouter()
 
 
 @router.get("/metrics")
-async def get_metrics(_=Depends(require_scope("read"))):
+async def get_metrics(_=Depends(get_current_user)):
     """Return current application metrics snapshot."""
     return await metrics.snapshot()
 
@@ -22,7 +22,7 @@ async def get_metrics(_=Depends(require_scope("read"))):
 @router.get("/metrics/history")
 async def get_metrics_history(
     hours: int = 24,
-    _=Depends(require_scope("read")),
+    _=Depends(get_current_user),
 ):
     """Return historical metrics from HANA for trend charts."""
     async with get_db() as conn:
@@ -47,7 +47,7 @@ async def get_metrics_history(
 
 
 @router.get("/metrics/jobs/breakdown")
-async def get_job_breakdown(_=Depends(require_scope("read"))):
+async def get_job_breakdown(_=Depends(get_current_user)):
     """Return job breakdown by status and input type."""
     async with get_db() as conn:
         by_status = execute_query(
@@ -87,7 +87,7 @@ async def get_job_breakdown(_=Depends(require_scope("read"))):
 @router.get("/dlq")
 async def list_dlq(
     limit: int = 50,
-    _=Depends(require_scope("admin")),
+    _=Depends(require_role("admin")),
 ):
     """List jobs in the Dead Letter Queue."""
     async with get_db() as conn:
@@ -110,7 +110,7 @@ async def list_dlq(
 async def requeue_dlq_job(
     dlq_id: str,
     request: Request,
-    _=Depends(require_scope("admin")),
+    _=Depends(require_role("admin")),
 ):
     """Requeue a DLQ job for another conversion attempt."""
     from fastapi import BackgroundTasks
@@ -166,7 +166,7 @@ async def requeue_dlq_job(
 @router.delete("/dlq/{dlq_id}")
 async def dismiss_dlq_job(
     dlq_id: str,
-    _=Depends(require_scope("admin")),
+    _=Depends(require_role("admin")),
 ):
     """Dismiss (permanently discard) a DLQ job."""
     async with get_db() as conn:

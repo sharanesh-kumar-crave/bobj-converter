@@ -7,7 +7,8 @@ from contextlib import asynccontextmanager
 
 from app.db.hana import init_db, close_db
 from app.routers import conversion, projects, jobs, health
-from app.routers import admin
+from app.routers import admin, auth, users
+from app.auth.users import seed_default_admin
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ async def lifespan(app: FastAPI):
     app.state.vcap = vcap
     logger.info("Initializing HANA Cloud connection pool...")
     await init_db(vcap)
+    await seed_default_admin()
     logger.info("Application startup complete.")
     yield
     logger.info("Shutting down — closing DB pool...")
@@ -55,7 +57,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "x-csrf-token", "x-correlation-id"],
 )
 
@@ -65,3 +67,5 @@ app.include_router(conversion.router, prefix="/api/v1/conversions", tags=["conve
 app.include_router(projects.router,   prefix="/api/v1/projects",    tags=["projects"])
 app.include_router(jobs.router,       prefix="/api/v1/jobs",        tags=["jobs"])
 app.include_router(admin.router,      prefix="/api/v1/admin",       tags=["admin"])
+app.include_router(auth.router,       prefix="/api/auth",           tags=["auth"])
+app.include_router(users.router,      prefix="/api/v1/users",       tags=["users"])

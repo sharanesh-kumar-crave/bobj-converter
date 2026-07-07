@@ -178,3 +178,46 @@ class JobSummary(BaseModel):
     converted: int | None
     created_at: datetime
     completed_at: datetime | None
+
+
+# ─── Users & auth ─────────────────────────────────────────────────────────────
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    username: str
+    role: str
+    email: str | None = None
+
+
+class UserCreate(BaseModel):
+    username: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=4, max_length=255)
+    role: str = "viewer"
+    email: str | None = None
+
+
+class UserUpdate(BaseModel):
+    role: str | None = None
+    is_active: bool | None = None
+
+
+class PasswordReset(BaseModel):
+    password: str = Field(..., min_length=4, max_length=255)
+
+
+class UserOut(BaseModel):
+    id: str
+    username: str
+    email: str | None = None
+    role: str
+    is_active: bool = True
+    created_at: datetime | None = None
+
+    class Config:
+        from_attributes = True

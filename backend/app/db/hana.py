@@ -87,6 +87,18 @@ _SCHEMA_DDL = {
             COMPLETED_AT    TIMESTAMP
         )
     """,
+    "BOBJ_USERS": """
+        CREATE TABLE BOBJ_USERS (
+            ID            NVARCHAR(36)   NOT NULL PRIMARY KEY,
+            USERNAME      NVARCHAR(255)  NOT NULL,
+            EMAIL         NVARCHAR(255),
+            PASSWORD_HASH NVARCHAR(255)  NOT NULL,
+            ROLE          NVARCHAR(20)   NOT NULL DEFAULT 'viewer',
+            IS_ACTIVE     SMALLINT       NOT NULL DEFAULT 1,
+            CREATED_AT    TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UPDATED_AT    TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """,
 }
 
 
