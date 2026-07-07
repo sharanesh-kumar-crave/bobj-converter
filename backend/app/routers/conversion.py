@@ -12,6 +12,7 @@ from app.models.schemas import ConversionRequest, JobStatus
 from app.services.ai_core import run_conversion
 from app.services.datasphere import push_entities
 from app.services.sac import push_model
+from app.db.hana import get_db, execute_dml
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -127,6 +128,51 @@ def _simulate_bobj_objects():
 
 
 # ─── Conversions ──────────────────────────────────────────────────
+class ConversionRecord(BaseModel):
+    project_id: str
+    artifact_name: Optional[str] = "Conversion"
+    input_type: Optional[str] = "universe"
+    status: Optional[str] = "completed"
+    total_objects: Optional[int] = None
+    converted_count: Optional[int] = None
+
+
+@router.post("/record")
+async def record_conversion(payload: ConversionRecord):
+    """Persist a completed conversion against a project so the project's
+    job_count (SELECT COUNT(*) FROM BOBJ_CONVERSION_JOBS WHERE PROJECT_ID=?)
+    reflects it. Best-effort; used by the UI after a conversion completes."""
+    job_id = str(uuid.uuid4())
+    try:
+        async with get_db() as conn:
+            execute_dml(
+                conn,
+                """
+                INSERT INTO BOBJ_CONVERSION_JOBS
+                  (ID, PROJECT_ID, ARTIFACT_NAME, INPUT_TYPE, RAW_CONTENT,
+                   STATUS, TOTAL_OBJECTS, CONVERTED_COUNT, OWNER_USER_ID,
+                   CREATED_AT, COMPLETED_AT)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                (
+                    job_id,
+                    payload.project_id,
+                    payload.artifact_name or "Conversion",
+                    payload.input_type or "universe",
+                    "",  # RAW_CONTENT is NOT NULL — empty placeholder
+                    payload.status or "completed",
+                    payload.total_objects,
+                    payload.converted_count,
+                    "anonymous",
+                ),
+            )
+        logger.info("Recorded conversion %s for project %s", job_id, payload.project_id)
+        return JSONResponse(content={"ok": True, "job_id": job_id})
+    except Exception as e:
+        logger.exception("Failed to record conversion for project %s", payload.project_id)
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)[:500]})
+
+
 @router.post("")
 async def start_conversion(
     request: Request,

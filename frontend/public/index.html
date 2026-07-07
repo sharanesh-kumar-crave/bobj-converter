@@ -1149,6 +1149,27 @@ function clearCvFile() {
   document.getElementById('cvFile').value='';
 }
 
+async function recordConversionForProject(result) {
+  const pid=document.getElementById('cvProjectId').value;
+  if(!pid) return; // only track when the conversion is assigned to a project
+  try {
+    await fetch(`${API}/api/v1/conversions/record`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        project_id:pid,
+        artifact_name:(result&&result.project_name)||_cvFileName||'Conversion',
+        input_type:document.getElementById('cvObjType').value||'universe',
+        status:'completed',
+        total_objects:(result&&result.entities)||null,
+        converted_count:(result&&result.entities)||null
+      }),
+      signal:AbortSignal.timeout(8000)
+    });
+    addLog('OK','Conversion recorded to project');
+    if(typeof loadProjects==='function') loadProjects(); // refresh card counts
+  } catch(e) { addLog('WARN','Could not record conversion to project'); }
+}
+
 async function runConvert() {
   const btn=document.getElementById('cvBtn');
   const artContent=document.getElementById('artContent').value.trim();
@@ -1195,6 +1216,7 @@ async function runConvert() {
       setStatus('cvStatus','ok',`✓ AI Conversion complete (demo) — ${d.entities||0} entities`);
       btn.disabled=false;
       toast('Conversion complete!','ok');
+      recordConversionForProject(d);
       return;
     }
 
@@ -1211,6 +1233,7 @@ async function runConvert() {
     renderResult(d);
     setStatus('cvStatus','ok','✓ Conversion complete (demo mode)');
     btn.disabled=false;
+    recordConversionForProject(d);
   }
 }
 
@@ -1226,6 +1249,7 @@ async function pollJob(id) {
       document.getElementById('cvBtn').disabled=false;
       toast('Conversion complete!','ok');
       loadDashboard();
+      recordConversionForProject(d);
     } else if(d.status==='failed') {
       setStatus('cvStatus','err',d.error||'Conversion failed');
       addLog('ERROR',d.error||'Conversion failed');
