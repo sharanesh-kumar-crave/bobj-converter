@@ -61,6 +61,7 @@ async def update_user(user_id: str, body: UserUpdate, admin: dict = Depends(requ
     if new_role not in _ROLES:
         raise HTTPException(status_code=422, detail=f"Invalid role: {new_role}")
     new_active = int(body.is_active) if body.is_active is not None else int(row.get("is_active", 1))
+    new_email = body.email if body.email is not None else row.get("email")
 
     # Guard: don't strip the last active admin (by demotion or deactivation).
     was_active_admin = row.get("role") == "admin" and int(row.get("is_active", 1)) == 1
@@ -71,8 +72,8 @@ async def update_user(user_id: str, body: UserUpdate, admin: dict = Depends(requ
     async with get_db() as conn:
         execute_dml(
             conn,
-            "UPDATE BOBJ_USERS SET ROLE = ?, IS_ACTIVE = ?, UPDATED_AT = CURRENT_TIMESTAMP WHERE ID = ?",
-            (new_role, new_active, user_id),
+            "UPDATE BOBJ_USERS SET ROLE = ?, IS_ACTIVE = ?, EMAIL = ?, UPDATED_AT = CURRENT_TIMESTAMP WHERE ID = ?",
+            (new_role, new_active, new_email, user_id),
         )
     updated = await get_user_by_id(user_id)
     return _row_to_out(updated)

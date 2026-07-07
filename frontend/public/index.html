@@ -1066,6 +1066,27 @@ table.btbl tbody tr:hover td{background:rgba(59,130,246,.04)}
   </div>
 </div>
 
+<!-- Edit User -->
+<div class="moverlay" id="modalEditUser">
+  <div class="modal">
+    <div class="mh">Edit User <button class="mclose" onclick="closeModal('modalEditUser')">✕</button></div>
+    <input type="hidden" id="euId">
+    <div class="fr"><label>Username</label><input class="fi" type="text" id="euName" disabled style="opacity:.7"></div>
+    <div class="fr"><label>Email</label><input class="fi" type="email" id="euEmail" placeholder="user@craveinfotech.com"></div>
+    <div class="fr"><label>Role</label>
+      <select class="fi" id="euRole">
+        <option value="viewer">Viewer — read-only</option>
+        <option value="editor">Editor — convert &amp; manage projects</option>
+        <option value="admin">Administrator — full access + user management</option>
+      </select>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveEditUser()">Save Changes</button>
+      <button class="btn btn-dark" onclick="closeModal('modalEditUser')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ══════════════════════════════════════════════════════════════════════
 // CONFIG
@@ -2586,6 +2607,7 @@ function renderUsers(){
       <td>${status}</td>
       <td>${created}</td>
       <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-dark btn-sm" onclick="openEditUser('${u.id}')">Edit</button>
         <button class="btn btn-dark btn-sm" onclick="toggleUserActive('${u.id}',${u.is_active?0:1})">${u.is_active?'Deactivate':'Activate'}</button>
         <button class="btn btn-dark btn-sm" onclick="resetUserPassword('${u.id}','${u.username}')">Reset PW</button>
         <button class="btn btn-sm" style="border:1px solid rgba(239,68,68,.4);color:var(--red)" onclick="deleteUserRow('${u.id}','${u.username}')">Delete</button>
@@ -2605,6 +2627,25 @@ async function createUserSubmit(){
     if(!r.ok) throw new Error(d.detail||'Failed to create user');
     toast('User created','ok'); closeModal('modalUser'); loadUsers();
   }catch(e){ toast(e.message||'Failed to create user','err'); }
+}
+function openEditUser(id){
+  const u=(_users||[]).find(x=>String(x.id)===String(id));
+  if(!u) return;
+  document.getElementById('euId').value=u.id;
+  document.getElementById('euName').value=u.username||'';
+  document.getElementById('euEmail').value=u.email||'';
+  document.getElementById('euRole').value=(u.role||'viewer').toLowerCase();
+  openModal('modalEditUser');
+}
+async function saveEditUser(){
+  const id=document.getElementById('euId').value;
+  const email=document.getElementById('euEmail').value.trim();
+  const role=document.getElementById('euRole').value;
+  try{
+    const r=await fetch(`${API}/api/v1/users/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,role})});
+    if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||'Failed to update user'); }
+    toast('User updated','ok'); closeModal('modalEditUser'); loadUsers();
+  }catch(e){ toast(e.message||'Failed to update user','err'); }
 }
 async function changeUserRole(id,role){
   try{

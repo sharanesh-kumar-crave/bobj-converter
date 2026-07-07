@@ -205,6 +205,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     role: str | None = None
     is_active: bool | None = None
+    email: str | None = None
 
 
 class PasswordReset(BaseModel):
