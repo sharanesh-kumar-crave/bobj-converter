@@ -2355,6 +2355,57 @@ function renderSourceMappingHTML(d){
       <strong style="color:var(--text)">Rewiring path:</strong> S/4HANA CDS view → Datasphere connection → <span style="color:#c2410c;font-weight:600">Replication Flow</span> (facts, delta) or <span style="color:#4338ca;font-weight:600">Remote Table</span> (dimensions, live) → Graphical View → Analytical Model.<br>
       Facts are persisted with delta for performance; master-data dimensions are federated live. CDS views must be <em>released for consumption</em> (and <em>extraction-enabled</em> for delta).
     </div>
+    ${_rewireGuideHTML()}
+  </div>`;
+}
+
+// ── Detailed step-by-step guide: rewiring the data source in SAP Datasphere ──
+function _rewireGuideHTML(){
+  const step=(n,title,color,items)=>`
+    <div style="display:flex;gap:13px;margin-bottom:16px">
+      <div style="flex-shrink:0;width:27px;height:27px;border-radius:50%;background:${color};color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center">${n}</div>
+      <div style="flex:1">
+        <div style="font-weight:700;color:var(--text);margin-bottom:5px">${title}</div>
+        <ul style="margin:0;padding-left:17px;color:var(--gray2);font-size:12.5px;line-height:1.75">${items.map(i=>`<li>${i}</li>`).join('')}</ul>
+      </div>
+    </div>`;
+  const mono=s=>`<span style="font-family:var(--mono);font-size:11.5px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:1px 5px">${s}</span>`;
+  const O='var(--orange)', B='#4338ca', G='#0f766e';
+  const steps=
+    step(1,'Prepare the CDS view (S/4HANA side)',O,[
+      'Ensure the CDS view is <strong>released for consumption</strong> (C1 contract) and exposed to Datasphere.',
+      `For delta replication, the view must be <strong>extraction-enabled</strong> — annotate ${mono('@Analytics.dataExtraction.enabled: true')} (plus the ${mono('@Analytics.dataExtraction.delta.*')} annotations).`,
+      'Pick analytical / consumption-level CDS views at the right grain (e.g. a fact at line-item level, dimensions at master-data level).'
+    ])+
+    step(2,'Create the connection in Datasphere (one-time)',O,[
+      '<strong>S/4HANA Cloud:</strong> connection type <em>SAP S/4HANA Cloud</em> — needs communication scenario '+mono('SAP_COM_0532')+' for CDS extraction.',
+      '<strong>S/4HANA On-Premise:</strong> set up <em>SAP Cloud Connector</em> for connectivity + a <em>Data Provisioning (DP) Agent</em> for replication.',
+      'Validate the connection (green status) in <strong>Connections</strong> before modelling.'
+    ])+
+    step(3,'Ingest each source (per the table above)',B,[
+      '<strong>Facts →</strong> Data Builder → <em>New Replication Flow</em> → Source = connection + CDS view → Target = a new <em>local table</em> → enable <strong>delta</strong> → Deploy &amp; Run. Data is persisted in Datasphere.',
+      '<strong>Dimensions / master data →</strong> Data Builder → <em>Import Remote Tables</em> → pick the CDS view → keep <strong>Data Access = Remote</strong> (federated, live). Replicate instead only if the table is small and you want it local.',
+      'Preview the table to confirm rows land / federate correctly.'
+    ])+
+    step(4,'Rewire the Graphical View (the actual swap)',G,[
+      'Open the imported <strong>Graphical View</strong> in Data Builder.',
+      'Replace each placeholder source node (the ones tagged “referenced by the universe object expressions”) with the new S/4-backed <strong>remote / local table</strong> — drag it onto the canvas or use <em>Replace Source</em>.',
+      'Re-map columns to the <strong>existing output</strong> — keep the same column names &amp; data types so nothing downstream breaks.',
+      'Rebuild the joins / unions on the S/4 keys; set <strong>Semantic Usage</strong> correctly (Dimension vs Fact) and add associations from the fact to each dimension.',
+      '<strong>Save &amp; Deploy.</strong>'
+    ])+
+    step(5,'Validate the Analytical Model &amp; consume',G,[
+      'Open the <strong>Analytical Model</strong> (built on the Fact view) — confirm measures, dimensions and associations still resolve after the source swap.',
+      'Deploy, then <em>Preview</em> the data to sanity-check numbers.',
+      'Expose for consumption — <strong>SAP Analytics Cloud</strong>, SQL, or other analytic clients.'
+    ]);
+  return `<div style="margin-top:22px;border-top:1px solid var(--border);padding-top:18px">
+    <div style="font-size:15px;font-weight:800;color:var(--text);margin-bottom:4px">🛠 Step-by-step: rewire the data source in SAP Datasphere</div>
+    <div style="font-size:12px;color:var(--gray2);margin-bottom:16px">Follow these once your CSN is imported and the graphical view + analytical model skeleton exists.</div>
+    ${steps}
+    <div style="background:var(--bg);border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:8px;padding:11px 13px;font-size:12px;color:var(--gray2);line-height:1.7">
+      <strong style="color:var(--text)">💡 Tip:</strong> Keep the graphical view's output structure identical to what the CSN generated — same field names and types. Then the analytical model on top keeps working, and you only ever swap what feeds <em>into</em> the view, never what comes <em>out</em> of it.
+    </div>
   </div>`;
 }
 
