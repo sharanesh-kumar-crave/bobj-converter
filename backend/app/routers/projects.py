@@ -29,6 +29,24 @@ async def list_projects(request: Request):
     return [_row_to_project(r) for r in rows]
 
 
+@router.get("/{project_id}/conversions")
+async def list_project_conversions(project_id: str, request: Request):
+    """Conversions recorded for a project (from HANA, so it matches job_count)."""
+    async with get_db() as conn:
+        rows = execute_query(
+            conn,
+            """
+            SELECT ID, PROJECT_ID, ARTIFACT_NAME, INPUT_TYPE, STATUS,
+                   TOTAL_OBJECTS, CONVERTED_COUNT, CREATED_AT, COMPLETED_AT
+            FROM BOBJ_CONVERSION_JOBS
+            WHERE PROJECT_ID = ?
+            ORDER BY CREATED_AT DESC
+            """,
+            (project_id,),
+        )
+    return rows
+
+
 @router.post("", response_model=Project, status_code=201)
 async def create_project(request: Request, body: ProjectCreate):
     user_id = "anonymous"

@@ -1670,16 +1670,16 @@ async function openProjectDetail(id) {
   box.innerHTML='<div class="empty" style="padding:16px"><div class="etxt">Loading…</div></div>';
   openModal('modalProjDetail');
   try {
-    const r=await fetch(`${API}/api/v1/conversions?project_id=${encodeURIComponent(id)}`);
+    const r=await fetch(`${API}/api/v1/projects/${encodeURIComponent(id)}/conversions`);
     const d=await r.json();
     const jobs=d.jobs||d||[];
-    box.innerHTML=jobs.length?jobs.slice().reverse().map(j=>`
+    box.innerHTML=jobs.length?jobs.map(j=>`
       <div class="history-item">
         <div style="flex:1;min-width:0">
-          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${j.project_name||j.job_id||'—'}</div>
-          <div style="font-size:11px;color:var(--gray2)">${j.object_type||'—'}${j.elapsed?' · '+j.elapsed+'s':''}${j.entities?' · '+j.entities+' entities':''}</div>
+          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${j.artifact_name||j.id||'—'}</div>
+          <div style="font-size:11px;color:var(--gray2)">${j.input_type||'—'}${(j.total_objects!=null)?' · '+j.total_objects+' entities':''}${j.created_at?' · '+new Date(j.created_at).toLocaleDateString():''}</div>
         </div>
-        <div class="history-status ${j.status||''}">${j.status||'—'}</div>
+        <div class="history-status ${(j.status||'').toLowerCase()}">${j.status||'—'}</div>
       </div>`).join(''):'<div class="empty" style="padding:20px"><div class="etxt">No conversions yet</div></div>';
   } catch(e) {
     box.innerHTML='<div class="empty" style="padding:20px"><div class="etxt">Could not load conversions</div></div>';
