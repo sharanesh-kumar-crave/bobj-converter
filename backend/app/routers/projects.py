@@ -1,8 +1,9 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.auth.users import get_current_user, require_role
 from app.db.hana import execute_dml, execute_query, get_db
 from app.models.schemas import Project, ProjectCreate
 
@@ -11,29 +12,45 @@ router = APIRouter()
 
 
 @router.get("", response_model=list[Project])
-async def list_projects(request: Request):
-    user_id = request.state.user.get("sub", "unknown")
+async def list_projects(user: dict = Depends(get_current_user)):
+    # Shared team tool: any authenticated user sees all projects (incl. legacy
+    # anonymous-owned ones). Role gating on writes happens on the mutating routes.
     async with get_db() as conn:
         rows = execute_query(
             conn,
             """
-            SELECT P.*, COUNT(J.ID) AS JOB_COUNT
+            SELECT P.*,
+                   (SELECT COUNT(*) FROM BOBJ_CONVERSION_JOBS J
+                    WHERE J.PROJECT_ID = P.ID) AS JOB_COUNT
             FROM BOBJ_PROJECTS P
-            LEFT JOIN BOBJ_CONVERSION_JOBS J ON J.PROJECT_ID = P.ID
-            WHERE P.OWNER_USER_ID = ?
-            GROUP BY P.ID, P.NAME, P.DESCRIPTION, P.BOBJ_SYSTEM_NAME,
-                     P.DATASPHERE_SPACE_ID, P.SAC_TENANT_URL,
-                     P.OWNER_USER_ID, P.CREATED_AT, P.UPDATED_AT
             ORDER BY P.UPDATED_AT DESC
             """,
-            (user_id,),
+            (),
         )
     return [_row_to_project(r) for r in rows]
 
 
+@router.get("/{project_id}/conversions")
+async def list_project_conversions(project_id: str, user: dict = Depends(get_current_user)):
+    """Conversions recorded for a project (from HANA, so it matches job_count)."""
+    async with get_db() as conn:
+        rows = execute_query(
+            conn,
+            """
+            SELECT ID, PROJECT_ID, ARTIFACT_NAME, INPUT_TYPE, STATUS,
+                   TOTAL_OBJECTS, CONVERTED_COUNT, CREATED_AT, COMPLETED_AT
+            FROM BOBJ_CONVERSION_JOBS
+            WHERE PROJECT_ID = ?
+            ORDER BY CREATED_AT DESC
+            """,
+            (project_id,),
+        )
+    return rows
+
+
 @router.post("", response_model=Project, status_code=201)
-async def create_project(request: Request, body: ProjectCreate):
-    user_id = request.state.user.get("sub", "unknown")
+async def create_project(body: ProjectCreate, user: dict = Depends(require_role("editor"))):
+    user_id = user["id"]
     project_id = uuid.uuid4()
     async with get_db() as conn:
         execute_dml(
@@ -59,16 +76,11 @@ async def create_project(request: Request, body: ProjectCreate):
 
 
 @router.delete("/{project_id}", status_code=204)
-async def delete_project(project_id: str, request: Request):
-    user_id = request.state.user.get("sub", "unknown")
+async def delete_project(project_id: str, user: dict = Depends(require_role("editor"))):
     async with get_db() as conn:
-        rows = execute_query(
-            conn, "SELECT OWNER_USER_ID FROM BOBJ_PROJECTS WHERE ID = ?", (project_id,)
-        )
+        rows = execute_query(conn, "SELECT ID FROM BOBJ_PROJECTS WHERE ID = ?", (project_id,))
         if not rows:
             raise HTTPException(status_code=404, detail="Project not found")
-        if rows[0]["owner_user_id"] != user_id:
-            raise HTTPException(status_code=403, detail="Not your project")
         execute_dml(conn, "DELETE FROM BOBJ_PROJECTS WHERE ID = ?", (project_id,))
 
 

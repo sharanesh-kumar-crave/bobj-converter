@@ -3,7 +3,7 @@ import logging
 import os
 
 import jwt
-from fastapi import HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 
@@ -39,9 +39,10 @@ security = HTTPBearer()
 
 async def verify_token(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = security,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> dict:
     import os
+
     if os.getenv("ENVIRONMENT", "local") == "local":
         request.state.user = {
             "sub": "local-dev-user",
@@ -69,13 +70,17 @@ async def verify_token(
         request.state.user = payload
         return payload
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired"
+        ) from None
     except jwt.InvalidTokenError as e:
         logger.warning("Invalid JWT: %s", str(e))
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from e
     except Exception as e:
         logger.error("Token verification error: %s", str(e))
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Auth error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Auth error"
+        ) from e
 
 
 def require_scope(scope: str):

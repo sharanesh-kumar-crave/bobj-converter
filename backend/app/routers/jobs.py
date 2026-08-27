@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends
 
+from app.auth.users import get_current_user
 from app.db.hana import execute_query, get_db
 from app.models.schemas import InputType, JobStatus, JobSummary
 
@@ -8,12 +9,12 @@ router = APIRouter()
 
 @router.get("", response_model=list[JobSummary])
 async def list_jobs(
-    request: Request,
     project_id: str | None = None,
     status: JobStatus | None = None,
     limit: int = 50,
+    user: dict = Depends(get_current_user),
 ):
-    user_id = request.state.user.get("sub", "unknown")
+    user_id = user["id"]
     filters = ["OWNER_USER_ID = ?"]
     params: list = [user_id]
     if project_id:

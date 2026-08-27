@@ -88,7 +88,8 @@ jobs:
           exit 1
 
       - name: Slack notification
-        if: always() && ${{ secrets.SLACK_WEBHOOK_URL != '' }}
+        if: always()
+        continue-on-error: true
         uses: slackapi/slack-github-action@v1.27.0
         with:
           payload: |

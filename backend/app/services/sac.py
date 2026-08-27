@@ -37,8 +37,9 @@ async def _get_sac_token(config: dict) -> str:
             },
         )
         resp.raise_for_status()
-        _sac_token = resp.json()["access_token"]
-        return _sac_token
+        token: str = resp.json()["access_token"]
+        _sac_token = token
+        return token
 
 
 async def push_model(model_config: dict) -> dict:

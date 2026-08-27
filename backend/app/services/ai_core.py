@@ -1,8 +1,9 @@
-import os
 import json
 import logging
-import httpx
+import os
 from typing import Any
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +11,13 @@ AZURE_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "https://CraveOpenAI-1.opena
 AZURE_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
 AZURE_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
 AZURE_CHAT_DEPLOYMENT = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "GPT-4o-1")
+
+SYSTEM_PROMPT = (
+    "You are an SAP BOBJ to Datasphere/SAC migration expert. Analyze the BOBJ "
+    'artifact and return a JSON response with the top-level keys "analysis", '
+    '"datasphereEntities", "sacModelConfig", "conversionMapping" and '
+    '"summary". Return ONLY valid JSON, no markdown, no explanation.'
+)
 
 
 async def convert_bobj_artifact(
@@ -26,9 +34,15 @@ Artifact Name: {artifact_name}
 Content:
 {raw_content}
 
-Analyze this BOBJ artifact and return a JSON response with:
+Analyze this BOBJ artifact IN DETAIL and return a JSON response with:
 {{
-  "datasphere_entities": [
+  "analysis": {{
+    "dataSources": [{{"name": "source table/object", "type": "BW ADSO|Master Data|Time Characteristic|Universe Table", "description": "what it provides"}}],
+    "dimensions": [{{"name": "dim", "dataType": "string|integer|decimal|date", "source": "source object"}}],
+    "measures": [{{"name": "measure", "dataType": "decimal|integer", "aggregation": "SUM|AVG|COUNT|MIN|MAX"}}],
+    "calculations": [{{"name": "calc name", "formula": "the actual formula/expression", "critical": true, "description": "what it computes + migration note"}}]
+  }},
+  "datasphereEntities": [
     {{
       "name": "entity name",
       "type": "dimension|fact|analytic_model",
@@ -36,7 +50,7 @@ Analyze this BOBJ artifact and return a JSON response with:
       "description": "description"
     }}
   ],
-  "sac_model_config": {{
+  "sacModelConfig": {{
     "model_name": "model name",
     "model_type": "planning|analytic",
     "description": "description",
@@ -44,11 +58,11 @@ Analyze this BOBJ artifact and return a JSON response with:
     "measures": [{{"name": "measure", "aggregation": "SUM|AVG|COUNT"}}],
     "data_connections": []
   }},
-  "conversion_mapping": [
+  "conversionMapping": [
     {{"source": "source object", "target": "target object", "status": "converted|manual_review|not_supported", "notes": "notes"}}
   ],
   "summary": {{
-    "total_objects": 0,
+    "totalObjects": 0,
     "converted": 0,
     "manual_review": 0,
     "not_supported": 0,
@@ -71,10 +85,13 @@ Return ONLY valid JSON, no markdown, no explanation."""
 
     body = {
         "messages": [
-            {"role": "system", "content": "You are an SAP BOBJ to Datasphere/SAC migration expert. Always respond with valid JSON only."},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT,
+            },
+            {"role": "user", "content": prompt},
         ],
-        "max_tokens": 4000,
+        "max_tokens": 6000,
         "temperature": 0.1,
     }
 
@@ -83,8 +100,13 @@ Return ONLY valid JSON, no markdown, no explanation."""
             response = await client.post(url, headers=headers, json=body)
             response.raise_for_status()
             data = response.json()
-            content = data["choices"][0]["message"]["content"].strip()
-            # Strip markdown if present
+            if "choices" in data:  # Azure OpenAI / OpenAI chat format
+                content = data["choices"][0]["message"]["content"]
+            elif "content" in data:  # Anthropic Messages format
+                content = data["content"][0]["text"]
+            else:
+                raise KeyError("Unrecognized LLM response format")
+            content = content.strip()
             if content.startswith("```"):
                 content = content.split("```")[1]
                 if content.startswith("json"):
@@ -93,3 +115,12 @@ Return ONLY valid JSON, no markdown, no explanation."""
     except Exception as e:
         logger.error(f"Azure OpenAI error: {e}")
         raise
+
+
+async def run_conversion(input_type: str, raw_content: str) -> dict[str, Any]:
+    """Alias used by conversion router — delegates to convert_bobj_artifact."""
+    return await convert_bobj_artifact(
+        input_type=input_type,
+        artifact_name="artifact",
+        raw_content=raw_content,
+    )

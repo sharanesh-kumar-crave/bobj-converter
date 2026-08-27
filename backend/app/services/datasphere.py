@@ -38,8 +38,9 @@ async def _get_ds_token(config: dict) -> str:
             },
         )
         resp.raise_for_status()
-        _ds_token = resp.json()["access_token"]
-        return _ds_token
+        token: str = resp.json()["access_token"]
+        _ds_token = token
+        return token
 
 
 async def push_entities(entities: list[dict]) -> dict:
@@ -60,7 +61,7 @@ async def push_entities(entities: list[dict]) -> dict:
     base = config["base_url"].rstrip("/")
     space = config["space_id"]
 
-    results = {"created": [], "failed": []}
+    results: dict[str, list] = {"created": [], "failed": []}
     async with httpx.AsyncClient(timeout=30) as client:
         for entity in entities:
             entity_name = entity.get("entityName", "unknown")

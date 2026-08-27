@@ -3,21 +3,20 @@ Job retry engine with exponential backoff and dead letter queue (DLQ).
 Retries failed conversions up to MAX_ATTEMPTS with jitter.
 DLQ stores permanently failed jobs for manual review.
 """
+
 import asyncio
 import logging
 import random
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
 
 from app.monitoring.metrics import metrics
 
 logger = logging.getLogger(__name__)
 
-MAX_ATTEMPTS    = 3
-BASE_DELAY_S    = 5.0    # initial retry delay in seconds
-MAX_DELAY_S     = 60.0   # cap on retry delay
-JITTER_FACTOR   = 0.3    # ±30% jitter to avoid thundering herd
+MAX_ATTEMPTS = 3
+BASE_DELAY_S = 5.0  # initial retry delay in seconds
+MAX_DELAY_S = 60.0  # cap on retry delay
+JITTER_FACTOR = 0.3  # ±30% jitter to avoid thundering herd
 
 
 def _backoff_delay(attempt: int) -> float:
@@ -32,19 +31,19 @@ async def run_with_retry(
     input_type: str,
     raw_content: str,
     artifact_name: str,
-    project_id: Optional[uuid.UUID] = None,
+    project_id: uuid.UUID | None = None,
 ) -> dict:
     """
     Execute the full conversion pipeline with retry logic.
     On permanent failure, writes to DLQ and raises.
     """
+    from app.db.hana import execute_dml, get_db
+    from app.models.schemas import JobStatus
     from app.services.ai_core import run_conversion
     from app.services.datasphere import push_entities
     from app.services.sac import push_model
-    from app.db.hana import get_db, execute_dml
-    from app.models.schemas import JobStatus
 
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
@@ -83,6 +82,7 @@ async def run_with_retry(
 
             # ── Persist result ────────────────────────────────────────────────
             import json
+
             async with get_db() as conn:
                 execute_dml(
                     conn,
@@ -120,11 +120,11 @@ async def run_with_retry(
                 logger.warning(
                     "Conversion failed — retrying",
                     extra={
-                        "job_id":      str(job_id),
-                        "attempt":     attempt,
+                        "job_id": str(job_id),
+                        "attempt": attempt,
                         "next_attempt": attempt + 1,
-                        "delay_s":     round(delay, 1),
-                        "error":       str(e)[:200],
+                        "delay_s": round(delay, 1),
+                        "error": str(e)[:200],
                     },
                 )
                 await asyncio.sleep(delay)
@@ -136,6 +136,7 @@ async def run_with_retry(
 
     # ── Dead letter queue ─────────────────────────────────────────────────────
     await _write_dlq(job_id, input_type, artifact_name, str(last_error), MAX_ATTEMPTS)
+    assert last_error is not None
     raise last_error
 
 
@@ -148,7 +149,7 @@ async def _write_dlq(
 ):
     """Write permanently failed job to the DLQ table for manual review."""
     try:
-        from app.db.hana import get_db, execute_dml
+        from app.db.hana import execute_dml, get_db
         from app.models.schemas import JobStatus
 
         async with get_db() as conn:
@@ -173,8 +174,7 @@ async def _write_dlq(
                    ERROR_MESSAGE, ATTEMPTS, CREATED_AT)
                 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """,
-                (str(uuid.uuid4()), str(job_id), input_type,
-                 artifact_name, error[:1000], attempts),
+                (str(uuid.uuid4()), str(job_id), input_type, artifact_name, error[:1000], attempts),
             )
 
         logger.info("Job written to DLQ", extra={"job_id": str(job_id)})
@@ -194,6 +194,7 @@ async def _send_alert(
 ):
     """Send email/Slack alert for permanently failed jobs."""
     import os
+
     import httpx
 
     webhook_url = os.getenv("SLACK_WEBHOOK_URL", "")
@@ -201,7 +202,7 @@ async def _send_alert(
         return
 
     message = {
-        "text": f"*BOBJ Converter — Job Failed Permanently*",
+        "text": "*BOBJ Converter — Job Failed Permanently*",
         "blocks": [
             {
                 "type": "section",

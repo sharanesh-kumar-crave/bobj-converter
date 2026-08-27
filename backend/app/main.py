@@ -1,19 +1,16 @@
-from dotenv import load_dotenv
-load_dotenv()
-import os
 import json
 import logging
-from fastapi import FastAPI, Depends
-from fastapi.middleware.cors import CORSMiddleware
+import os
 from contextlib import asynccontextmanager
 
-from app.db.hana import init_db, close_db
-from app.auth.xsuaa import verify_token
-from app.monitoring.logging import setup_logging, RequestLoggingMiddleware
-from app.routers import conversion, projects, jobs, health
-from app.routers import admin
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-setup_logging()
+from app.auth.users import seed_default_admin
+from app.db.hana import close_db, init_db
+from app.routers import admin, auth, conversion, health, jobs, projects, users
+
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -30,46 +27,45 @@ def load_vcap_services() -> dict:
 async def lifespan(app: FastAPI):
     vcap = load_vcap_services()
     app.state.vcap = vcap
-    logger.info("Initializing HANA Cloud connection pool")
+    logger.info("Initializing HANA Cloud connection pool...")
     await init_db(vcap)
-    logger.info("Application startup complete", extra={
-        "environment": os.getenv("ENVIRONMENT", "local"),
-        "build_sha":   os.getenv("BUILD_SHA", "unknown"),
-    })
+    await seed_default_admin()
+    logger.info("Application startup complete.")
     yield
-    logger.info("Shutting down")
+    logger.info("Shutting down — closing DB pool...")
     await close_db()
 
 
 app = FastAPI(
-    title="BOBJ to Datasphere and SAC Converter API",
+    title="BOBJ → Datasphere & SAC Converter API",
     version="1.0.0",
+    description="SAP BTP-hosted API for converting BOBJ artifacts to Datasphere entities and SAC models.",
     lifespan=lifespan,
     docs_url="/api/docs",
     redoc_url="/api/redoc",
 )
 
-ALLOWED_ORIGINS = os.getenv(
-    "ALLOWED_ORIGINS",
-    "https://*.hana.ondemand.com,https://*.cfapps.eu10.hana.ondemand.com"
-).split(",")
+ALLOWED_ORIGINS = [
+    "https://crave-bobj-sac-convertor.cfapps.eu10-004.hana.ondemand.com",
+    "https://bobj-converter-ui.cfapps.eu10-004.hana.ondemand.com",
+    "https://crave-bw-bobj-datasphere-convertor.cfapps.eu10-004.hana.ondemand.com",
+    "http://localhost:3000",
+    "http://localhost:8080",
+]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "x-csrf-token", "x-correlation-id"],
 )
 
-app.add_middleware(RequestLoggingMiddleware)
-
-app.include_router(health.router,   prefix="/api/health",        tags=["health"])
-app.include_router(conversion.router, prefix="/api/v1/conversions", tags=["conversion"],
-    dependencies=[Depends(verify_token)])
-app.include_router(projects.router, prefix="/api/v1/projects",   tags=["projects"],
-    dependencies=[Depends(verify_token)])
-app.include_router(jobs.router,     prefix="/api/v1/jobs",       tags=["jobs"],
-    dependencies=[Depends(verify_token)])
-app.include_router(admin.router,    prefix="/api/v1/admin",      tags=["admin"],
-    dependencies=[Depends(verify_token)])
+# No auth required for now — add verify_token back when XSUAA is configured
+app.include_router(health.router, prefix="/api/health", tags=["health"])
+app.include_router(conversion.router, prefix="/api/v1/conversions", tags=["conversion"])
+app.include_router(projects.router, prefix="/api/v1/projects", tags=["projects"])
+app.include_router(jobs.router, prefix="/api/v1/jobs", tags=["jobs"])
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
