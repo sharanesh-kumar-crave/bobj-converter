@@ -91,7 +91,7 @@ jobs:
       - name: CF login — Dev space
         run: |
           cf8 api "${{ secrets.CF_API_URL }}"
-          cf8 auth "${{ secrets.CF_USERNAME }}" "${{ secrets.CF_PASSWORD }}"
+          cf8 auth "${{ secrets.CF_CLIENT_ID }}" "${{ secrets.CF_CLIENT_SECRET }}" --client-credentials
           cf8 target -o "${{ secrets.CF_ORG }}" -s "${{ secrets.CF_SPACE_DEV }}"
 
       - name: Blue-green deploy — API (zero-downtime)
@@ -199,7 +199,7 @@ jobs:
       - name: CF login — Dev space
         run: |
           cf8 api "${{ secrets.CF_API_URL }}"
-          cf8 auth "${{ secrets.CF_USERNAME }}" "${{ secrets.CF_PASSWORD }}"
+          cf8 auth "${{ secrets.CF_CLIENT_ID }}" "${{ secrets.CF_CLIENT_SECRET }}" --client-credentials
           cf8 target -o "${{ secrets.CF_ORG }}" -s "${{ secrets.CF_SPACE_DEV }}"
 
       - name: Deploy UI
