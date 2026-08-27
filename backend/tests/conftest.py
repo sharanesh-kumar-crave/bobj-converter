@@ -90,6 +90,13 @@ def client(app):
         return payload
 
     app.dependency_overrides[verify_token] = _fake_verify
+
+    from app.auth.users import get_current_user
+
+    async def _fake_current_user():
+        return {"id": "test-user-123", "username": "tester", "email": "tester@example.com", "role": "admin", "is_active": True}
+
+    app.dependency_overrides[get_current_user] = _fake_current_user
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
     app.dependency_overrides.clear()

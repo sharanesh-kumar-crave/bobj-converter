@@ -3,11 +3,14 @@ Admin monitoring API endpoints.
 Exposes metrics, DLQ management, and health details.
 Protected by admin scope.
 """
+
 import logging
-from fastapi import APIRouter, Request, Depends, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+
 from app.auth.users import get_current_user, require_role
+from app.db.hana import execute_dml, execute_query, get_db
 from app.monitoring.metrics import metrics
-from app.db.hana import get_db, execute_query, execute_dml
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -78,8 +81,8 @@ async def get_job_breakdown(_=Depends(get_current_user)):
             """,
         )
     return {
-        "by_status":       by_status,
-        "by_input_type":   by_type,
+        "by_status": by_status,
+        "by_input_type": by_type,
         "recent_failures": recent_failures,
     }
 
@@ -113,8 +116,6 @@ async def requeue_dlq_job(
     _=Depends(require_role("admin")),
 ):
     """Requeue a DLQ job for another conversion attempt."""
-    from fastapi import BackgroundTasks
-    from app.monitoring.retry import run_with_retry
     import uuid
 
     async with get_db() as conn:

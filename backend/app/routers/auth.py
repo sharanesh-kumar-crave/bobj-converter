@@ -12,7 +12,11 @@ router = APIRouter()
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest):
     row = await get_user_by_username(body.username)
-    if not row or not bool(row.get("is_active", 1)) or not verify_password(body.password, row["password_hash"]):
+    if (
+        not row
+        or not bool(row.get("is_active", 1))
+        or not verify_password(body.password, row["password_hash"])
+    ):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     user = {"id": row["id"], "username": row["username"], "role": row.get("role", "viewer")}
     token = create_token(user)

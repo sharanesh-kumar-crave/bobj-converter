@@ -1,7 +1,7 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth.users import get_current_user, require_role
 from app.db.hana import execute_dml, execute_query, get_db
@@ -78,9 +78,7 @@ async def create_project(body: ProjectCreate, user: dict = Depends(require_role(
 @router.delete("/{project_id}", status_code=204)
 async def delete_project(project_id: str, user: dict = Depends(require_role("editor"))):
     async with get_db() as conn:
-        rows = execute_query(
-            conn, "SELECT ID FROM BOBJ_PROJECTS WHERE ID = ?", (project_id,)
-        )
+        rows = execute_query(conn, "SELECT ID FROM BOBJ_PROJECTS WHERE ID = ?", (project_id,))
         if not rows:
             raise HTTPException(status_code=404, detail="Project not found")
         execute_dml(conn, "DELETE FROM BOBJ_PROJECTS WHERE ID = ?", (project_id,))

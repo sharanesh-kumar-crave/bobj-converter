@@ -12,7 +12,7 @@ import logging
 import os
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
@@ -27,9 +27,8 @@ _ROLES = ("admin", "editor", "viewer")
 
 # Stable JWT secret. Set AUTH_SECRET in the CF env so tokens survive restarts;
 # the fallback keeps local/dev working but logs a warning.
-_SECRET = os.getenv("AUTH_SECRET")
-if not _SECRET:
-    _SECRET = "datahub-dev-secret-change-me"
+_SECRET: str = os.getenv("AUTH_SECRET") or "datahub-dev-secret-change-me"
+if not os.getenv("AUTH_SECRET"):
     logger.warning("AUTH_SECRET not set — using an insecure dev fallback. Set it in the CF env.")
 
 
@@ -62,7 +61,7 @@ def create_token(user: dict) -> str:
         "sub": user["id"],
         "username": user["username"],
         "role": user["role"],
-        "exp": datetime.now(timezone.utc) + timedelta(hours=_TOKEN_TTL_HOURS),
+        "exp": datetime.now(UTC) + timedelta(hours=_TOKEN_TTL_HOURS),
     }
     return jwt.encode(payload, _SECRET, algorithm="HS256")
 
@@ -99,7 +98,9 @@ async def get_user_by_id(user_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
-async def create_user(username: str, password: str, role: str = "viewer", email: str | None = None) -> dict:
+async def create_user(
+    username: str, password: str, role: str = "viewer", email: str | None = None
+) -> dict:
     if role not in _ROLES:
         raise HTTPException(status_code=422, detail=f"Invalid role: {role}")
     existing = await get_user_by_username(username)
@@ -127,9 +128,13 @@ async def get_current_user(request: Request) -> dict:
     try:
         payload = _decode_token(token)
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired"
+        ) from None
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        ) from None
     # Load fresh from DB so role changes / deactivation take effect immediately.
     row = await get_user_by_id(payload.get("sub", ""))
     if not row or not bool(row.get("is_active", 1)):

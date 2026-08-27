@@ -2,7 +2,8 @@ import asyncio
 import logging
 import os
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from typing import Any
 
 try:
     from hdbcli import dbapi
@@ -138,18 +139,17 @@ async def close_db():
     global _pool
     if _pool:
         for conn in _pool:
-            try:
+            with suppress(Exception):
                 conn.close()
-            except Exception:
-                pass
         _pool = []
 
 
 @asynccontextmanager
-async def get_db() -> AsyncGenerator[any, None]:
+async def get_db() -> AsyncGenerator[Any, None]:
     """Acquire a HANA connection — returns mock in local env."""
     if os.getenv("ENVIRONMENT", "local") == "local":
         from unittest.mock import MagicMock
+
         mock = MagicMock()
         mock.cursor.return_value.description = [("result",)]
         mock.cursor.return_value.fetchall.return_value = []
@@ -157,6 +157,7 @@ async def get_db() -> AsyncGenerator[any, None]:
         yield mock
         return
     global _pool
+    assert _pool is not None
     async with _pool_lock:
         conn = _pool.pop(0)
     try:
@@ -169,15 +170,16 @@ async def get_db() -> AsyncGenerator[any, None]:
         async with _pool_lock:
             _pool.append(conn)
 
-def execute_query(conn: any, sql: str, params: tuple = ()) -> list[dict]:
+
+def execute_query(conn: Any, sql: str, params: tuple = ()) -> list[dict]:
     """Execute a SELECT and return rows as dicts."""
     cursor = conn.cursor()
     cursor.execute(sql, params)
     columns = [desc[0].lower() for desc in cursor.description]
-    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return [dict(zip(columns, row, strict=False)) for row in cursor.fetchall()]
 
 
-def execute_dml(conn: any, sql: str, params: tuple = ()) -> int:
+def execute_dml(conn: Any, sql: str, params: tuple = ()) -> int:
     """Execute INSERT/UPDATE/DELETE and return affected row count."""
     cursor = conn.cursor()
     cursor.execute(sql, params)

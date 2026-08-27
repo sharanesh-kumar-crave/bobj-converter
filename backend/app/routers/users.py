@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.auth.users import (
     _ROLES,
     create_user,
-    get_current_user,
     get_user_by_id,
     hash_password,
     require_role,
@@ -67,7 +66,9 @@ async def update_user(user_id: str, body: UserUpdate, admin: dict = Depends(requ
     was_active_admin = row.get("role") == "admin" and int(row.get("is_active", 1)) == 1
     still_active_admin = new_role == "admin" and new_active == 1
     if was_active_admin and not still_active_admin and await _active_admin_count() <= 1:
-        raise HTTPException(status_code=409, detail="Cannot demote/deactivate the last active admin")
+        raise HTTPException(
+            status_code=409, detail="Cannot demote/deactivate the last active admin"
+        )
 
     async with get_db() as conn:
         execute_dml(
@@ -76,11 +77,15 @@ async def update_user(user_id: str, body: UserUpdate, admin: dict = Depends(requ
             (new_role, new_active, new_email, user_id),
         )
     updated = await get_user_by_id(user_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found")
     return _row_to_out(updated)
 
 
 @router.post("/{user_id}/password", status_code=204)
-async def reset_password(user_id: str, body: PasswordReset, _: dict = Depends(require_role("admin"))):
+async def reset_password(
+    user_id: str, body: PasswordReset, _: dict = Depends(require_role("admin"))
+):
     row = await get_user_by_id(user_id)
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
@@ -99,7 +104,11 @@ async def delete_user(user_id: str, admin: dict = Depends(require_role("admin"))
         raise HTTPException(status_code=404, detail="User not found")
     if user_id == admin["id"]:
         raise HTTPException(status_code=409, detail="You cannot delete your own account")
-    if row.get("role") == "admin" and int(row.get("is_active", 1)) == 1 and await _active_admin_count() <= 1:
+    if (
+        row.get("role") == "admin"
+        and int(row.get("is_active", 1)) == 1
+        and await _active_admin_count() <= 1
+    ):
         raise HTTPException(status_code=409, detail="Cannot delete the last active admin")
     async with get_db() as conn:
         execute_dml(conn, "DELETE FROM BOBJ_USERS WHERE ID = ?", (user_id,))

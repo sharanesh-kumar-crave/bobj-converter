@@ -1,14 +1,14 @@
-import os
 import json
 import logging
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+import os
 from contextlib import asynccontextmanager
 
-from app.db.hana import init_db, close_db
-from app.routers import conversion, projects, jobs, health
-from app.routers import admin, auth, users
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.auth.users import seed_default_admin
+from app.db.hana import close_db, init_db
+from app.routers import admin, auth, conversion, health, jobs, projects, users
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -62,10 +62,10 @@ app.add_middleware(
 )
 
 # No auth required for now — add verify_token back when XSUAA is configured
-app.include_router(health.router,     prefix="/api/health",         tags=["health"])
+app.include_router(health.router, prefix="/api/health", tags=["health"])
 app.include_router(conversion.router, prefix="/api/v1/conversions", tags=["conversion"])
-app.include_router(projects.router,   prefix="/api/v1/projects",    tags=["projects"])
-app.include_router(jobs.router,       prefix="/api/v1/jobs",        tags=["jobs"])
-app.include_router(admin.router,      prefix="/api/v1/admin",       tags=["admin"])
-app.include_router(auth.router,       prefix="/api/auth",           tags=["auth"])
-app.include_router(users.router,      prefix="/api/v1/users",       tags=["users"])
+app.include_router(projects.router, prefix="/api/v1/projects", tags=["projects"])
+app.include_router(jobs.router, prefix="/api/v1/jobs", tags=["jobs"])
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(users.router, prefix="/api/v1/users", tags=["users"])

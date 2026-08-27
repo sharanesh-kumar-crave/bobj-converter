@@ -1,34 +1,43 @@
 import logging
 import uuid
-import json
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List
+from datetime import UTC, datetime
+from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile, File, Form
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.auth.users import get_current_user, require_role
+from app.db.hana import execute_dml, get_db
 from app.models.schemas import ConversionRequest, JobStatus
 from app.services.ai_core import run_conversion
 from app.services.datasphere import push_entities
 from app.services.sac import push_model
-from app.db.hana import get_db, execute_dml
-from app.auth.users import get_current_user, require_role
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # In-memory stores
-_jobs: Dict[str, Dict[str, Any]] = {}
-_projects: Dict[str, Dict[str, Any]] = {}
-_bobj_connections: Dict[str, Dict[str, Any]] = {}
+_jobs: dict[str, dict[str, Any]] = {}
+_projects: dict[str, dict[str, Any]] = {}
+_bobj_connections: dict[str, dict[str, Any]] = {}
 
 
 # ─── Project Models ───────────────────────────────────────────────
 class ProjectCreate(BaseModel):
     name: str
-    description: Optional[str] = ""
-    bobj_system: Optional[str] = ""
+    description: str | None = ""
+    bobj_system: str | None = ""
+
 
 class BOBJConnect(BaseModel):
     host: str
@@ -36,13 +45,14 @@ class BOBJConnect(BaseModel):
     username: str
     password: str
     auth_type: str = "secEnterprise"
-    system_name: Optional[str] = ""
+    system_name: str | None = ""
 
 
 # ─── Projects ─────────────────────────────────────────────────────
 @router.get("/projects")
 async def list_projects():
     return JSONResponse(content=list(_projects.values()))
+
 
 @router.post("/projects")
 async def create_project(payload: ProjectCreate):
@@ -53,13 +63,14 @@ async def create_project(payload: ProjectCreate):
         "description": payload.description,
         "bobj_system": payload.bobj_system,
         "status": "active",
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "conversion_count": 0,
         "last_activity": None,
     }
     _projects[project_id] = project
     logger.info("Project created: %s", project_id)
     return JSONResponse(content=project, status_code=201)
+
 
 @router.get("/projects/{project_id}")
 async def get_project(project_id: str):
@@ -69,6 +80,7 @@ async def get_project(project_id: str):
     # Attach jobs
     p["jobs"] = [j for j in _jobs.values() if j.get("project_id") == project_id]
     return JSONResponse(content=p)
+
 
 @router.delete("/projects/{project_id}")
 async def delete_project(project_id: str):
@@ -86,7 +98,9 @@ async def connect_bobj(payload: BOBJConnect):
     # In production this would use the BOBJ SDK/REST API
     # For now we simulate a successful connection
     if not payload.host or not payload.username:
-        return JSONResponse(content={"status": "failed", "error": "Host and username required"}, status_code=400)
+        return JSONResponse(
+            content={"status": "failed", "error": "Host and username required"}, status_code=400
+        )
 
     connection = {
         "connection_id": conn_id,
@@ -96,15 +110,17 @@ async def connect_bobj(payload: BOBJConnect):
         "system_name": payload.system_name or payload.host,
         "auth_type": payload.auth_type,
         "status": "connected",
-        "connected_at": datetime.now(timezone.utc).isoformat(),
+        "connected_at": datetime.now(UTC).isoformat(),
         "objects": _simulate_bobj_objects(),
     }
     _bobj_connections[conn_id] = connection
     return JSONResponse(content=connection)
 
+
 @router.get("/bobj/connections")
 async def list_connections():
     return JSONResponse(content=list(_bobj_connections.values()))
+
 
 @router.get("/bobj/{connection_id}/objects")
 async def get_bobj_objects(connection_id: str):
@@ -113,29 +129,100 @@ async def get_bobj_objects(connection_id: str):
         raise HTTPException(status_code=404, detail="Connection not found")
     return JSONResponse(content=conn["objects"])
 
+
 def _simulate_bobj_objects():
     return [
-        {"id": "u001", "name": "Sales Universe", "type": "Universe", "folder": "/Universes/Sales", "last_modified": "2024-01-15", "size_kb": 248},
-        {"id": "u002", "name": "Finance Universe", "type": "Universe", "folder": "/Universes/Finance", "last_modified": "2024-02-20", "size_kb": 312},
-        {"id": "u003", "name": "Procurement Universe", "type": "Universe", "folder": "/Universes/SCM", "last_modified": "2024-03-10", "size_kb": 189},
-        {"id": "r001", "name": "Monthly Sales Report", "type": "WebI Report", "folder": "/Reports/Sales", "last_modified": "2024-03-01", "size_kb": 45},
-        {"id": "r002", "name": "P&L Dashboard", "type": "WebI Report", "folder": "/Reports/Finance", "last_modified": "2024-02-28", "size_kb": 67},
-        {"id": "r003", "name": "Vendor Analysis", "type": "WebI Report", "folder": "/Reports/SCM", "last_modified": "2024-03-05", "size_kb": 38},
-        {"id": "r004", "name": "Headcount Report", "type": "Crystal Report", "folder": "/Reports/HR", "last_modified": "2024-01-20", "size_kb": 92},
-        {"id": "u004", "name": "HR Universe", "type": "Universe", "folder": "/Universes/HR", "last_modified": "2023-12-10", "size_kb": 156},
-        {"id": "r005", "name": "Customer 360", "type": "WebI Report", "folder": "/Reports/CRM", "last_modified": "2024-03-12", "size_kb": 83},
-        {"id": "u005", "name": "CRM Universe", "type": "Universe", "folder": "/Universes/CRM", "last_modified": "2024-01-08", "size_kb": 201},
+        {
+            "id": "u001",
+            "name": "Sales Universe",
+            "type": "Universe",
+            "folder": "/Universes/Sales",
+            "last_modified": "2024-01-15",
+            "size_kb": 248,
+        },
+        {
+            "id": "u002",
+            "name": "Finance Universe",
+            "type": "Universe",
+            "folder": "/Universes/Finance",
+            "last_modified": "2024-02-20",
+            "size_kb": 312,
+        },
+        {
+            "id": "u003",
+            "name": "Procurement Universe",
+            "type": "Universe",
+            "folder": "/Universes/SCM",
+            "last_modified": "2024-03-10",
+            "size_kb": 189,
+        },
+        {
+            "id": "r001",
+            "name": "Monthly Sales Report",
+            "type": "WebI Report",
+            "folder": "/Reports/Sales",
+            "last_modified": "2024-03-01",
+            "size_kb": 45,
+        },
+        {
+            "id": "r002",
+            "name": "P&L Dashboard",
+            "type": "WebI Report",
+            "folder": "/Reports/Finance",
+            "last_modified": "2024-02-28",
+            "size_kb": 67,
+        },
+        {
+            "id": "r003",
+            "name": "Vendor Analysis",
+            "type": "WebI Report",
+            "folder": "/Reports/SCM",
+            "last_modified": "2024-03-05",
+            "size_kb": 38,
+        },
+        {
+            "id": "r004",
+            "name": "Headcount Report",
+            "type": "Crystal Report",
+            "folder": "/Reports/HR",
+            "last_modified": "2024-01-20",
+            "size_kb": 92,
+        },
+        {
+            "id": "u004",
+            "name": "HR Universe",
+            "type": "Universe",
+            "folder": "/Universes/HR",
+            "last_modified": "2023-12-10",
+            "size_kb": 156,
+        },
+        {
+            "id": "r005",
+            "name": "Customer 360",
+            "type": "WebI Report",
+            "folder": "/Reports/CRM",
+            "last_modified": "2024-03-12",
+            "size_kb": 83,
+        },
+        {
+            "id": "u005",
+            "name": "CRM Universe",
+            "type": "Universe",
+            "folder": "/Universes/CRM",
+            "last_modified": "2024-01-08",
+            "size_kb": 201,
+        },
     ]
 
 
 # ─── Conversions ──────────────────────────────────────────────────
 class ConversionRecord(BaseModel):
     project_id: str
-    artifact_name: Optional[str] = "Conversion"
-    input_type: Optional[str] = "universe"
-    status: Optional[str] = "completed"
-    total_objects: Optional[int] = None
-    converted_count: Optional[int] = None
+    artifact_name: str | None = "Conversion"
+    input_type: str | None = "universe"
+    status: str | None = "completed"
+    total_objects: int | None = None
+    converted_count: int | None = None
 
 
 @router.post("/record")
@@ -180,9 +267,9 @@ async def start_conversion(
     background_tasks: BackgroundTasks,
     artifact_name: str = Form(...),
     input_type: str = Form(...),
-    project_id: Optional[str] = Form(None),
-    raw_content: Optional[str] = Form(None),
-    file: Optional[UploadFile] = File(None),
+    project_id: str | None = Form(None),
+    raw_content: str | None = Form(None),
+    file: UploadFile | None = File(None),
     user: dict = Depends(require_role("editor")),
 ):
     content = raw_content or ""
@@ -205,23 +292,31 @@ async def start_conversion(
         "input_type": input_type,
         "status": JobStatus.pending.value,
         "owner_user_id": user_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "completed_at": None,
         "result": None,
         "error": None,
     }
 
     if project_id and project_id in _projects:
-        _projects[project_id]["conversion_count"] = _projects[project_id].get("conversion_count", 0) + 1
-        _projects[project_id]["last_activity"] = datetime.now(timezone.utc).isoformat()
+        _projects[project_id]["conversion_count"] = (
+            _projects[project_id].get("conversion_count", 0) + 1
+        )
+        _projects[project_id]["last_activity"] = datetime.now(UTC).isoformat()
 
     background_tasks.add_task(_run_conversion_pipeline, job_id, input_type, content)
-    return JSONResponse(status_code=202, content={"job_id": job_id, "status": JobStatus.pending.value})
+    return JSONResponse(
+        status_code=202, content={"job_id": job_id, "status": JobStatus.pending.value}
+    )
 
 
 # Keep JSON body POST as well for backwards compat
 @router.post("/json")
-async def start_conversion_json(payload: ConversionRequest, background_tasks: BackgroundTasks, user: dict = Depends(require_role("editor"))):
+async def start_conversion_json(
+    payload: ConversionRequest,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_role("editor")),
+):
     job_id = str(uuid.uuid4())
     user_id = user["id"]
     _jobs[job_id] = {
@@ -231,16 +326,22 @@ async def start_conversion_json(payload: ConversionRequest, background_tasks: Ba
         "input_type": payload.input_type.value,
         "status": JobStatus.pending.value,
         "owner_user_id": user_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "completed_at": None,
         "result": None,
         "error": None,
     }
     if payload.project_id and str(payload.project_id) in _projects:
-        _projects[str(payload.project_id)]["conversion_count"] = _projects[str(payload.project_id)].get("conversion_count", 0) + 1
-        _projects[str(payload.project_id)]["last_activity"] = datetime.now(timezone.utc).isoformat()
-    background_tasks.add_task(_run_conversion_pipeline, job_id, payload.input_type.value, payload.raw_content)
-    return JSONResponse(status_code=202, content={"job_id": job_id, "status": JobStatus.pending.value})
+        _projects[str(payload.project_id)]["conversion_count"] = (
+            _projects[str(payload.project_id)].get("conversion_count", 0) + 1
+        )
+        _projects[str(payload.project_id)]["last_activity"] = datetime.now(UTC).isoformat()
+    background_tasks.add_task(
+        _run_conversion_pipeline, job_id, payload.input_type.value, payload.raw_content
+    )
+    return JSONResponse(
+        status_code=202, content={"job_id": job_id, "status": JobStatus.pending.value}
+    )
 
 
 @router.get("/{job_id}")
@@ -268,7 +369,7 @@ async def get_conversion_result(job_id: str, user: dict = Depends(get_current_us
 
 
 @router.get("")
-async def list_jobs(project_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+async def list_jobs(project_id: str | None = None, user: dict = Depends(get_current_user)):
     jobs = list(_jobs.values())
     if project_id:
         jobs = [j for j in jobs if j.get("project_id") == project_id]
@@ -301,15 +402,19 @@ async def _run_conversion_pipeline(job_id: str, input_type: str, content: str):
         logger.info("Datasphere push: %s", ds_result)
         sac_result = await push_model(result.get("sacModelConfig", {}))
         logger.info("SAC push: %s", sac_result)
-        _jobs[job_id].update({
-            "status": JobStatus.completed.value,
-            "result": result,
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-        })
+        _jobs[job_id].update(
+            {
+                "status": JobStatus.completed.value,
+                "result": result,
+                "completed_at": datetime.now(UTC).isoformat(),
+            }
+        )
     except Exception as e:
         logger.exception("Conversion pipeline failed for job %s", job_id)
-        _jobs[job_id].update({
-            "status": JobStatus.failed.value,
-            "error": str(e)[:1000],
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-        })
+        _jobs[job_id].update(
+            {
+                "status": JobStatus.failed.value,
+                "error": str(e)[:1000],
+                "completed_at": datetime.now(UTC).isoformat(),
+            }
+        )

@@ -1,8 +1,9 @@
-import os
 import json
 import logging
-import httpx
+import os
 from typing import Any
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +11,13 @@ AZURE_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "https://CraveOpenAI-1.opena
 AZURE_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
 AZURE_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
 AZURE_CHAT_DEPLOYMENT = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "GPT-4o-1")
+
+SYSTEM_PROMPT = (
+    "You are an SAP BOBJ to Datasphere/SAC migration expert. Analyze the BOBJ "
+    'artifact and return a JSON response with the top-level keys "analysis", '
+    '"datasphereEntities", "sacModelConfig", "conversionMapping" and '
+    '"summary". Return ONLY valid JSON, no markdown, no explanation.'
+)
 
 
 async def convert_bobj_artifact(
@@ -77,8 +85,11 @@ Return ONLY valid JSON, no markdown, no explanation."""
 
     body = {
         "messages": [
-            {"role": "system", "content": "You are an SAP BOBJ to Datasphere/SAC migration expert. Always respond with valid JSON only."},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT,
+            },
+            {"role": "user", "content": prompt},
         ],
         "max_tokens": 6000,
         "temperature": 0.1,
@@ -89,7 +100,13 @@ Return ONLY valid JSON, no markdown, no explanation."""
             response = await client.post(url, headers=headers, json=body)
             response.raise_for_status()
             data = response.json()
-            content = data["choices"][0]["message"]["content"].strip()
+            if "choices" in data:  # Azure OpenAI / OpenAI chat format
+                content = data["choices"][0]["message"]["content"]
+            elif "content" in data:  # Anthropic Messages format
+                content = data["content"][0]["text"]
+            else:
+                raise KeyError("Unrecognized LLM response format")
+            content = content.strip()
             if content.startswith("```"):
                 content = content.split("```")[1]
                 if content.startswith("json"):

@@ -100,7 +100,7 @@ class TestConversionSubmit:
 
         with patch("app.routers.conversion.get_db", fake_get_db), \
              patch("app.routers.conversion.execute_dml", return_value=1):
-            resp = client.post("/api/v1/conversions", json={
+            resp = client.post("/api/v1/conversions/json", json={
                 "input_type":    "universe_xml",
                 "artifact_name": "My_Universe",
                 "raw_content":   "<Universe name='Test'><DataFoundation/></Universe>",
@@ -126,8 +126,7 @@ class TestConversionSubmit:
         async def fake_get_db():
             yield MagicMock()
 
-        with patch("app.routers.conversion.get_db", fake_get_db), \
-             patch("app.routers.conversion.execute_query", return_value=[]):
+        with patch("app.routers.conversion.get_db", fake_get_db):
             resp = client.get(f"/api/v1/conversions/{uuid.uuid4()}")
         assert resp.status_code == 404
 

@@ -14,3 +14,9 @@ __pycache__/
 fix*.py
 *.bak
 .env
+
+# CI test venv & artifacts
+backend/.citest/
+backend/.coverage
+backend/reports/
+backend/coverage.xml
