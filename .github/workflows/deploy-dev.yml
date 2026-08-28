@@ -1,8 +1,8 @@
 name: Deploy → Dev
 
 on:
-  push:
-    branches: [main]
+  # Auto-deploy on push to main is disabled — deploy manually via `cf push`,
+  # or run this workflow from the Actions tab once CF credentials are set.
   workflow_dispatch:
     inputs:
       reason:
