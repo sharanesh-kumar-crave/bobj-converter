@@ -38,7 +38,7 @@ jobs:
       - name: CF login
         run: |
           cf8 api "${{ secrets.CF_API_URL }}"
-          cf8 auth "${{ secrets.CF_CLIENT_ID }}" "${{ secrets.CF_CLIENT_SECRET }}" --client-credentials
+          cf8 auth "${{ secrets.CF_USERNAME }}" "${{ secrets.CF_PASSWORD }}"
           TARGET_SPACE=${{ github.event.inputs.environment == 'prod' && secrets.CF_SPACE_PROD || secrets.CF_SPACE_DEV }}
           cf8 target -o "${{ secrets.CF_ORG }}" -s "$TARGET_SPACE"
 
