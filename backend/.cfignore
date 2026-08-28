@@ -1,0 +1,15 @@
+.citest/
+.venv/
+venv/
+.coverage
+coverage.xml
+reports/
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+__pycache__/
+*.pyc
+.env
+manifest.yml.bak
+tests/
